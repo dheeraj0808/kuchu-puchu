@@ -2,7 +2,7 @@ import 'reflect-metadata';
 
 import appConfig from './app.config';
 import databaseConfig from './database.config';
-import { validateEnv } from './env.validation';
+import { resolveAppRole, validateEnv } from './env.validation';
 import otpConfig from './otp.config';
 
 const secret = (c: string) => c.repeat(40);
@@ -74,6 +74,19 @@ describe('validateEnv', () => {
   it('requires REDIS_URL in production only', () => {
     expect(() => validateEnv({ ...prod, REDIS_URL: undefined })).toThrow(/REDIS_URL/);
     expect(() => validateEnv({ ...base, REDIS_URL: undefined })).not.toThrow();
+  });
+
+  it('runs as api when APP_ROLE is not set, and accepts only api | realtime | worker', () => {
+    expect(validateEnv(base).APP_ROLE).toBeUndefined();
+    expect(resolveAppRole(validateEnv(base))).toBe('api');
+    expect(validateEnv({ ...base, APP_ROLE: 'worker' }).APP_ROLE).toBe('worker');
+    expect(() => validateEnv({ ...base, APP_ROLE: 'cron' })).toThrow(/APP_ROLE/);
+  });
+
+  it('accepts an optional https SENTRY_DSN only', () => {
+    expect(validateEnv(base).SENTRY_DSN).toBeUndefined();
+    expect(() => validateEnv({ ...base, SENTRY_DSN: 'https://key@o1.ingest.sentry.io/1' })).not.toThrow();
+    expect(() => validateEnv({ ...base, SENTRY_DSN: 'not-a-url' })).toThrow(/SENTRY_DSN/);
   });
 
   it('rejects a REDIS_URL that is not a redis URL', () => {

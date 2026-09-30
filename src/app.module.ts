@@ -1,18 +1,18 @@
 import { DynamicModule, Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { createObserveModule } from '@nestjs/observe';
 import { ThrottlerModule } from '@nestjs/throttler';
 import type { Redis } from 'ioredis';
 
-import { configLoaders, getValidatedEnv, validateEnv } from './config';
+import { getValidatedEnv } from './config';
+import { CoreModule } from './core.module';
+import { EntitlementsModule } from './common/entitlements/entitlements.service';
 import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
+import { OnboardingModule } from './common/onboarding/onboarding-status.service';
 import { RedisThrottlerStorage } from './common/throttling/redis-throttler.storage';
 import { IP_LIMIT, THROTTLER_IP, THROTTLER_USER, USER_LIMIT } from './common/throttling/throttling.constants';
 import { QueueConnectionModule } from './infra/queue/queue-connection.module';
-import { REDIS_CLIENT, RedisModule } from './infra/redis/redis.module';
-import { LoggerModule } from './common/logging/logger.module';
-import { DatabaseModule } from './database/database.module';
+import { REDIS_CLIENT } from './infra/redis/redis.module';
 import { HealthModule } from './health/health.module';
 import { SecurityModule } from './security/security.module';
 
@@ -36,7 +36,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
 /**
  * Observe is only enabled when real credentials are configured.
- * Evaluated after ConfigModule.forRoot(), which has already validated the env.
+ * Evaluated after CoreModule's ConfigModule.forRoot(), which has already validated the env.
  */
 function observeImports(): DynamicModule[] {
   const { OBSERVE_APP_KEY: appKey, OBSERVE_APP_SECRET: appSecret } = getValidatedEnv();
@@ -46,18 +46,9 @@ function observeImports(): DynamicModule[] {
 
 @Module({
   imports: [
-    ConfigModule.forRoot({
-      isGlobal: true,
-      cache: true,
-      load: configLoaders,
-      validate: validateEnv,
-      envFilePath: '.env',
-    }),
+    CoreModule,
     ...observeImports(),
 
-    LoggerModule,
-    DatabaseModule,
-    RedisModule,
     QueueConnectionModule,
     ThrottlerModule.forRootAsync({
       inject: [REDIS_CLIENT],
@@ -71,6 +62,8 @@ function observeImports(): DynamicModule[] {
     }),
     SecurityModule,
     HealthModule,
+    EntitlementsModule,
+    OnboardingModule,
 
     AuthModule,
     AccountModule,

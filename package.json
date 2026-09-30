@@ -25,7 +25,10 @@
     "migrate:down": "ts-node src/database/migrate.ts down",
     "migrate:status": "ts-node src/database/migrate.ts status",
     "migrate:prod": "node dist/database/migrate.js up",
-    "seed": "ts-node src/database/migrate.ts seed"
+    "seed": "ts-node src/database/migrate.ts seed",
+    "start:realtime": "APP_ROLE=realtime nest start",
+    "start:worker": "APP_ROLE=worker nest start",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",
@@ -38,6 +41,7 @@
     "@nestjs/sequelize": "^12.0.0",
     "@nestjs/swagger": "^12.0.2",
     "@nestjs/throttler": "^6.7.1",
+    "@sentry/node": "^11.1.0",
     "bullmq": "^6.3.10",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
@@ -61,6 +65,7 @@
     "@nestjs/mau": "^0.2.6",
     "@nestjs/schematics": "^12.0.0",
     "@nestjs/testing": "^12.0.1",
+    "@testcontainers/mysql": "^12.2.0",
     "@testcontainers/redis": "^12.2.0",
     "@types/compression": "^1.8.1",
     "@types/express": "^5.0.0",

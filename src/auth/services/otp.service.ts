@@ -4,10 +4,11 @@ import { InjectModel } from '@nestjs/sequelize';
 import { literal, Op, type Transaction, type WhereOptions } from 'sequelize';
 
 import { AppException, ErrorCode } from '../../common/exceptions/app.exception';
+import { hmacSha256, timingSafeEqualHex } from '../../common/utils/hmac';
 import type { RequestContext } from '../../common/utils/request-context';
 import type { OtpConfig } from '../../config/otp.config';
 import { IdentifierType, OtpVerification } from '../models/otp-verification.model';
-import { generateNumericOtp, hmacSha256, timingSafeEqualHex } from '../utils/crypto.util';
+import { generateNumericOtp } from '../utils/crypto.util';
 
 /** Generic per-IP hourly cap on OTP issuance (defence against enumeration/SMS pumping). */
 export const OTP_MAX_REQUESTS_PER_IP_PER_HOUR = 20;

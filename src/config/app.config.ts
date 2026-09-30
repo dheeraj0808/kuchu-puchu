@@ -1,9 +1,11 @@
 import { registerAs } from '@nestjs/config';
 
-import { Environment, getValidatedEnv } from './env.validation';
+import { AppRole, Environment, getValidatedEnv, resolveAppRole } from './env.validation';
 
 export interface AppConfig {
   nodeEnv: string;
+  role: AppRole;
+  sentryDsn: string | undefined;
   isProduction: boolean;
   port: number;
   corsOrigins: string[];
@@ -17,6 +19,8 @@ export default registerAs('app', (): AppConfig => {
   const isProduction = env.NODE_ENV === Environment.Production;
   return {
     nodeEnv: env.NODE_ENV,
+    role: resolveAppRole(env),
+    sentryDsn: env.SENTRY_DSN,
     isProduction,
     port: env.PORT,
     corsOrigins: (env.CORS_ORIGINS ?? '')

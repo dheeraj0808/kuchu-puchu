@@ -1,6 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 
 import type { AppConfig } from '../../config/app.config';
+import { AppRole } from '../../config/env.validation';
 import type { JwtConfig } from '../../config/jwt.config';
 import type { OtpConfig } from '../../config/otp.config';
 import type { ProfileConfig } from '../../config/profile.config';
@@ -26,6 +27,8 @@ export const TEST_JWT_CONFIG: JwtConfig = {
 
 export const TEST_APP_CONFIG: AppConfig = {
   nodeEnv: 'test',
+  role: AppRole.Api,
+  sentryDsn: undefined,
   isProduction: false,
   port: 3000,
   corsOrigins: [],

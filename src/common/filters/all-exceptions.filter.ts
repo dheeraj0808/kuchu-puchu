@@ -9,6 +9,7 @@ import {
 import type { Request, Response } from 'express';
 
 import { AppException, ERROR_DEFINITIONS, ErrorCode } from '../exceptions/app.exception';
+import { captureException } from '../monitoring/sentry';
 
 /** Error body from guide §4.1. */
 export interface ErrorBody {
@@ -126,6 +127,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
   private logInternal(exception: unknown): void {
     // Server-side only: name + stack. Never returned to the client.
+    captureException(exception);
     if (exception instanceof Error) {
       this.logger.error(`Unhandled ${exception.name}`, exception.stack);
     } else {

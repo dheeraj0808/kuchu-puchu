@@ -1,13 +1,7 @@
 import 'reflect-metadata';
 import * as crypto from 'node:crypto';
 
-import {
-  generateNumericOtp,
-  generateTokenSecret,
-  hmacSha256,
-  parseDuration,
-  timingSafeEqualHex,
-} from './crypto.util';
+import { generateNumericOtp, generateTokenSecret, parseDuration } from './crypto.util';
 import { maskEmail, maskPhone } from './mask.util';
 
 jest.mock('node:crypto', () => {
@@ -42,20 +36,6 @@ describe('crypto.util', () => {
       expect(() => generateNumericOtp(3)).toThrow();
       expect(() => generateNumericOtp(11)).toThrow();
     });
-  });
-
-  it('hmacSha256 is deterministic 64-hex and never equals input', () => {
-    const h = hmacSha256('secret', '123456');
-    expect(h).toMatch(/^[0-9a-f]{64}$/);
-    expect(h).toBe(hmacSha256('secret', '123456'));
-    expect(h).not.toBe(hmacSha256('other', '123456'));
-    expect(h).not.toContain('123456');
-  });
-
-  it('timingSafeEqualHex', () => {
-    expect(timingSafeEqualHex('abcd', 'abcd')).toBe(true);
-    expect(timingSafeEqualHex('abcd', 'abce')).toBe(false);
-    expect(timingSafeEqualHex('abcd', 'abc')).toBe(false);
   });
 
   it('generateTokenSecret yields 64-char base64url unique values', () => {

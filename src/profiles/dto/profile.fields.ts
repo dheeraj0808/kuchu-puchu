@@ -22,7 +22,7 @@ import {
   MIN_DATING_AGE,
 } from '../profile.constants';
 import { calculateAge, parseIsoDate } from '../utils/age.util';
-import { sanitizeText } from '../utils/sanitize.util';
+import { sanitizeText } from '../../common/utils/sanitize';
 import { LocationDto } from './location.dto';
 
 // Letters (any script) and combining marks, with inner spaces, apostrophes, hyphens and dots.

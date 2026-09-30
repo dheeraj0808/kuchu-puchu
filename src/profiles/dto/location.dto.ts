@@ -3,7 +3,7 @@ import { Transform, type TransformFnParams } from 'class-transformer';
 import { IsISO31661Alpha2, IsNumber, IsOptional, IsString, Matches, Max, MaxLength, Min } from 'class-validator';
 
 import { PLACE_NAME_MAX } from '../profile.constants';
-import { sanitizeText } from '../utils/sanitize.util';
+import { sanitizeText } from '../../common/utils/sanitize';
 
 const PLACE_REGEX = /^[\p{L}\p{M}\p{N} '.,()-]+$/u;
 

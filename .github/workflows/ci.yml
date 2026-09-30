@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, development]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Lint, type-check, unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test -- --ci
+
+  integration:
+    name: Integration and e2e tests (Testcontainers)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # CI=true makes test/support start throwaway MySQL 8.4 and Redis 7
+      # containers (Testcontainers) instead of using any .env settings.
+      CI: 'true'
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Generate per-run test secrets
+        # Fresh random values each run; never real secrets.
+        run: |
+          for name in JWT_ACCESS_SECRET JWT_REFRESH_SECRET OTP_HASH_SECRET; do
+            value="$(openssl rand -hex 32)"
+            echo "::add-mask::$value"
+            echo "$name=$value" >> "$GITHUB_ENV"
+          done
+      - run: npm run test:int -- --ci
+      - run: npm run test:e2e -- --ci
+      - name: Validate docker-compose.yml
+        run: docker compose -f docker-compose.yml config --quiet
+        env:
+          DB_PASSWORD: ci-only

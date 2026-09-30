@@ -37,9 +37,13 @@ function isOriginAllowed(origin: string, app: AppConfig): boolean {
 /**
  * HTTP pipeline shared by main.ts and the e2e tests, so tests exercise the
  * same prefix, validation, error and response shapes as production.
- * Initialises the app; callers only need to listen().
+ * Initialises the app; callers only need to listen(). Shutdown on SIGTERM is
+ * handled by runRole (bootstrap/run-role.ts).
  */
-export async function configureApp(app: NestExpressApplication): Promise<AppConfig> {
+export async function configureApp(
+  app: NestExpressApplication,
+  options: { swagger?: boolean } = {},
+): Promise<AppConfig> {
   const appConfig = app.get(ConfigService).getOrThrow<AppConfig>('app');
   const exceptionsFilter = new AllExceptionsFilter(new NestLogger(AllExceptionsFilter.name));
 
@@ -68,6 +72,8 @@ export async function configureApp(app: NestExpressApplication): Promise<AppConf
       'Content-Type',
       'Authorization',
       'X-Request-Id',
+      'X-App-Version',
+      'X-Platform',
       'X-Device-Id',
     ],
     maxAge: 600,
@@ -77,9 +83,8 @@ export async function configureApp(app: NestExpressApplication): Promise<AppConf
   app.useGlobalPipes(createValidationPipe());
   app.useGlobalFilters(exceptionsFilter);
   app.useGlobalInterceptors(new ResponseInterceptor());
-  app.enableShutdownHooks();
 
-  if (appConfig.swaggerEnabled) {
+  if (appConfig.swaggerEnabled && options.swagger !== false) {
     setupSwagger(app);
   }
 

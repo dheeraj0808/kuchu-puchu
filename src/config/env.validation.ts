@@ -20,6 +20,18 @@ export enum Environment {
   Production = 'production',
 }
 
+/** Process type (guide §3.1): the same build runs as API, Realtime or Worker. */
+export enum AppRole {
+  Api = 'api',
+  Realtime = 'realtime',
+  Worker = 'worker',
+}
+
+/** The role to run when APP_ROLE is not set explicitly. */
+export function resolveAppRole(env: { APP_ROLE?: AppRole }): AppRole {
+  return env.APP_ROLE ?? AppRole.Api;
+}
+
 /** Secrets that must be ≥ 32 chars and all different from each other (guide S2). */
 export const SECRET_KEYS = ['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET', 'OTP_HASH_SECRET'] as const;
 
@@ -42,6 +54,15 @@ export class EnvironmentVariables {
   @Min(1)
   @Max(65535)
   PORT: number = 3000;
+
+  /**
+   * No default here: validated defaults are copied into process.env, and an
+   * entry point must be able to tell "not set" (use its own role) from an
+   * explicit, conflicting value. resolveAppRole() applies the api default.
+   */
+  @IsOptional()
+  @IsEnum(AppRole)
+  APP_ROLE?: AppRole;
 
   @IsOptional()
   @IsString()
@@ -174,6 +195,11 @@ export class EnvironmentVariables {
   @IsOptional() @IsString() FCM_PROJECT_ID?: string;
   @IsOptional() @IsString() FCM_CLIENT_EMAIL?: string;
   @IsOptional() @IsString() FCM_PRIVATE_KEY?: string;
+
+  // Monitoring. Sentry is only enabled when SENTRY_DSN is set.
+  @IsOptional()
+  @Matches(/^https:\/\/\S+$/, { message: 'SENTRY_DSN must be an https:// URL' })
+  SENTRY_DSN?: string;
 
   // NestJS Observe (optional; not in Appendix D)
   @IsOptional() @IsString() OBSERVE_APP_KEY?: string;

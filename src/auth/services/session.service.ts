@@ -3,13 +3,13 @@ import { InjectModel } from '@nestjs/sequelize';
 import { Op, type Transaction } from 'sequelize';
 
 import { AppException, ErrorCode } from '../../common/exceptions/app.exception';
+import { timingSafeEqualHex } from '../../common/utils/hmac';
 import type { RequestContext } from '../../common/utils/request-context';
 import { uuidv7 } from '../../common/utils/uuid';
 import { SecurityEventType } from '../../security/models/security-event.model';
 import { SecurityEventsService } from '../../security/security-events.service';
 import { User } from '../../users/models/user.model';
 import { Session } from '../models/session.model';
-import { timingSafeEqualHex } from '../utils/crypto.util';
 import { TokenService } from './token.service';
 
 export interface DeviceInfo {

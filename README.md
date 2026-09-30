@@ -74,26 +74,57 @@ npm run migrate:prod     # production: apply migrations from dist/
 
 Migrations are forward-only outside development: never edit one that has run. New tables use `TABLE_OPTIONS_0900`, and every UUID id / FK column uses `uuidColumn()` (`CHAR(36)` `utf8mb4_bin`) from `src/database/migrations/helpers.ts`.
 
-## Compile and run the project
+### Docker Compose (alternative)
+
+`docker-compose.yml` starts MySQL 8.4 (`utf8mb4_0900_ai_ci`, with `kuchu_puchu` and `kuchu_puchu_test`), Redis 7 and LocalStack S3 (private `kuchu-puchu-media-local` / `kuchu-puchu-private-local` buckets). It reads `DB_NAME`, `DB_USER`, `DB_PASSWORD` and `DB_PORT` from `.env`, binds to 127.0.0.1, and uses the same ports as the Homebrew setup (3307, 6379), so run one or the other:
 
 ```bash
-npm run start        # development
-npm run start:dev    # watch mode
-npm run start:prod   # production (node dist/main)
+docker compose up -d
+npm run migrate && npm run seed
 ```
+
+It's for local development only; there's no production image yet.
+
+## Compile and run the project
+
+The same build runs as three process types (guide §3.1), selected by `APP_ROLE`:
+
+| `APP_ROLE` | Entry | What it runs |
+|---|---|---|
+| `api` (default) | `src/main.ts` | REST API under `/api/v1`, Swagger at `/api/docs` outside production |
+| `realtime` | `src/realtime.ts` | `/api/v1/health` only for now; Socket.IO arrives with M19 |
+| `worker` | `src/worker.ts` | No HTTP; queues and jobs arrive with M03 |
+
+```bash
+npm run start:dev                 # api, watch mode
+npm run start:realtime            # APP_ROLE=realtime
+npm run start:worker              # APP_ROLE=worker
+APP_ROLE=worker npm run start:prod   # production: node dist/main picks the role
+```
+
+Every role refuses to start on an invalid environment, on MariaDB or MySQL older than 8.4, or when `APP_ROLE` names a different role than the entry file. The reason is always printed to stderr. On SIGTERM or SIGINT a process closes its HTTP server, DB pool and Redis connections and exits 0; if that takes longer than 10 s, it exits 1.
+
+Errors go to Sentry only when `SENTRY_DSN` is set. Request headers, bodies, query strings, cookies and user details are never sent; only the opaque user id may be.
+
+## CI
+
+`.github/workflows/ci.yml` runs on pushes to main / develop / development and on pull requests:
+
+1. **checks:** `npm ci`, lint, type-check, build and unit tests.
+2. **integration:** integration and e2e tests against throwaway MySQL 8.4 and Redis 7 containers (Testcontainers), with random per-run secrets, then validates `docker-compose.yml`.
 
 ## Run tests
 
 ```bash
 npm test             # unit tests (no database or Redis)
 npm run test:e2e     # e2e tests: real MySQL + Redis
-npm run test:int     # integration tests: two app instances on one Redis, schema checks
+npm run test:int     # integration tests: two app instances on one Redis, schema checks, entry points
 npm run test:cov     # unit test coverage
 ```
 
 ### Tests never touch dev data
 
-- **MySQL:** e2e and integration tests always use a dedicated database, `kuchu_puchu_test` by default. You can override it with `TEST_DB_NAME`, but the name must end in `_test` or the run refuses to start (`test/support/test-env.ts`). Before a run, `test/support/global-setup.ts` creates it if needed, applies all migrations and runs the seeders. Connection details (`DB_HOST`, `DB_USER`, `DB_PASSWORD`) come from `.env`; only the database name is replaced. Tests check `SELECT DATABASE()` to prove it.
+- **MySQL:** in CI (`CI=true`), or locally with `TEST_MYSQL_CONTAINER=1`, tests start a throwaway MySQL 8.4 container (Testcontainers). Otherwise they use the server in `.env`. Either way, e2e and integration tests always use a dedicated database, `kuchu_puchu_test` by default. You can override it with `TEST_DB_NAME`, but the name must end in `_test` or the run refuses to start (`test/support/test-env.ts`). Before a run, `test/support/global-setup.ts` creates it if needed, applies all migrations and runs the seeders. Connection details (`DB_HOST`, `DB_USER`, `DB_PASSWORD`) come from `.env`; only the database name is replaced. Tests check `SELECT DATABASE()` to prove it.
 - **Redis:** tests never use your dev Redis DB. In order of preference (`test/support/test-redis.ts`):
   1. `TEST_REDIS_URL`, if set. It must name a DB index other than 0.
   2. A throwaway **Testcontainers** Redis 7. CI (`CI=true`) requires this.

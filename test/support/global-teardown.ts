@@ -1,6 +1,6 @@
-type GlobalWithRedis = typeof globalThis & { __TEST_REDIS_STOP__?: () => Promise<void> };
+type GlobalWithContainers = typeof globalThis & { __TEST_CONTAINERS_STOP__?: Array<() => Promise<void>> };
 
-/** Stops the Testcontainers Redis, if one was started. */
+/** Stops any Testcontainers started by global-setup.ts. */
 export default async function globalTeardown(): Promise<void> {
-  await (globalThis as GlobalWithRedis).__TEST_REDIS_STOP__?.();
+  await Promise.all(((globalThis as GlobalWithContainers).__TEST_CONTAINERS_STOP__ ?? []).map((stop) => stop()));
 }

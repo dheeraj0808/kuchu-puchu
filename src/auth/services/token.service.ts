@@ -2,9 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 
+import { hmacSha256 } from '../../common/utils/hmac';
 import type { JwtConfig } from '../../config/jwt.config';
 import type { JwtPayload } from '../interfaces/jwt-payload.interface';
-import { generateTokenSecret, hmacSha256, parseDuration } from '../utils/crypto.util';
+import { generateTokenSecret, parseDuration } from '../utils/crypto.util';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SECRET_REGEX = /^[A-Za-z0-9_-]{43,128}$/;
