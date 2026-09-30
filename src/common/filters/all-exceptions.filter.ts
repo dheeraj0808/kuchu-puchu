@@ -8,18 +8,18 @@ import {
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
 
-import { AppException, ErrorCode } from '../exceptions/app.exception';
+import { AppException, ERROR_DEFINITIONS, ErrorCode } from '../exceptions/app.exception';
 
-interface ErrorBody {
+/** Error body from guide §4.1. */
+export interface ErrorBody {
   success: false;
-  message: string;
   code: string;
-  timestamp: string;
-  path: string;
-  requestId?: string;
+  message: string;
   details?: Record<string, unknown>;
+  requestId?: string;
 }
 
+/** Codes used for framework exceptions that were not raised as AppException. */
 const STATUS_CODES: Partial<Record<number, ErrorCode>> = {
   [HttpStatus.BAD_REQUEST]: ErrorCode.InvalidRequest,
   [HttpStatus.UNAUTHORIZED]: ErrorCode.Unauthorized,
@@ -28,15 +28,17 @@ const STATUS_CODES: Partial<Record<number, ErrorCode>> = {
   [HttpStatus.TOO_MANY_REQUESTS]: ErrorCode.TooManyRequests,
 };
 
-const DEFAULT_MESSAGES: Partial<Record<number, string>> = {
-  [HttpStatus.BAD_REQUEST]: 'Invalid request',
-  [HttpStatus.UNAUTHORIZED]: 'Unauthorized',
-  [HttpStatus.FORBIDDEN]: 'Forbidden',
-  [HttpStatus.NOT_FOUND]: 'Not found',
-  [HttpStatus.TOO_MANY_REQUESTS]: 'Too many requests',
-};
+/** Used when a 429 carries no Retry-After information at all. */
+const DEFAULT_RETRY_AFTER_SECONDS = 60;
 
 type RequestWithId = Request & { id?: unknown };
+
+interface Resolved {
+  status: number;
+  code: string;
+  message: string;
+  details?: Record<string, unknown>;
+}
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -49,33 +51,29 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const req = ctx.getRequest<RequestWithId>();
     const res = ctx.getResponse<Response>();
 
-    const { status, code, message, details } = this.resolve(exception);
+    const resolved = this.resolve(exception);
+    if (resolved.status === HttpStatus.TOO_MANY_REQUESTS) {
+      resolved.details = withRetryAfter(resolved.details, res);
+    }
 
     const body: ErrorBody = {
       success: false,
-      message,
-      code,
-      timestamp: new Date().toISOString(),
-      path: (req.originalUrl ?? req.url ?? '').split('?')[0],
+      code: resolved.code,
+      message: resolved.message,
     };
+    if (resolved.details) body.details = resolved.details;
     const requestId =
       typeof req.id === 'string' || typeof req.id === 'number'
         ? String(req.id)
         : undefined;
     if (requestId) body.requestId = requestId;
-    if (details) body.details = details;
 
     if (!res.headersSent) {
-      res.status(status).json(body);
+      res.status(resolved.status).json(body);
     }
   }
 
-  private resolve(exception: unknown): {
-    status: number;
-    code: string;
-    message: string;
-    details?: Record<string, unknown>;
-  } {
+  private resolve(exception: unknown): Resolved {
     if (exception instanceof AppException) {
       return {
         status: exception.getStatus(),
@@ -95,13 +93,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
         response !== null &&
         Array.isArray((response as { message?: unknown }).message)
       ) {
+        // class-validator messages describe the rule broken, never the value sent.
         const errors = ((response as { message: unknown[] }).message).filter(
           (m): m is string => typeof m === 'string',
         );
         return {
           status,
           code: ErrorCode.ValidationError,
-          message: 'Validation failed',
+          message: ERROR_DEFINITIONS[ErrorCode.ValidationError].defaultMessage,
           details: { errors },
         };
       }
@@ -111,34 +110,18 @@ export class AllExceptionsFilter implements ExceptionFilter {
         return this.internal();
       }
 
-      return {
-        status,
-        code: STATUS_CODES[status] ?? ErrorCode.InvalidRequest,
-        message: this.httpMessage(response, status),
-      };
+      // Library messages (e.g. "Cannot GET /x") are never sent to clients.
+      const code = STATUS_CODES[status] ?? ErrorCode.InvalidRequest;
+      return { status, code, message: ERROR_DEFINITIONS[code].defaultMessage };
     }
 
     this.logInternal(exception);
     return this.internal();
   }
 
-  private httpMessage(response: string | object, status: number): string {
-    if (typeof response === 'string') return response;
-    const msg = (response as { message?: unknown }).message;
-    if (typeof msg === 'string') return msg;
-    return DEFAULT_MESSAGES[status] ?? 'Request failed';
-  }
-
-  private internal(): {
-    status: number;
-    code: string;
-    message: string;
-  } {
-    return {
-      status: HttpStatus.INTERNAL_SERVER_ERROR,
-      code: ErrorCode.InternalError,
-      message: 'Internal server error',
-    };
+  private internal(): Resolved {
+    const { httpStatus, defaultMessage } = ERROR_DEFINITIONS[ErrorCode.InternalError];
+    return { status: httpStatus, code: ErrorCode.InternalError, message: defaultMessage };
   }
 
   private logInternal(exception: unknown): void {
@@ -149,4 +132,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
       this.logger.error('Unhandled non-error exception');
     }
   }
+}
+
+/** Every 429 tells the client how long to wait (Appendix C). */
+function withRetryAfter(
+  details: Record<string, unknown> | undefined,
+  res: Response,
+): Record<string, unknown> {
+  if (typeof details?.retryAfterSeconds === 'number') return details;
+  const header = Number.parseInt(String(res.getHeader('Retry-After') ?? ''), 10);
+  const retryAfterSeconds =
+    Number.isInteger(header) && header > 0 ? header : DEFAULT_RETRY_AFTER_SECONDS;
+  return { ...details, retryAfterSeconds };
 }

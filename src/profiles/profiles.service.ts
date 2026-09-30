@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectConnection, InjectModel } from '@nestjs/sequelize';
 import { UniqueConstraintError, type Transaction } from 'sequelize';
 import type { Sequelize } from 'sequelize-typescript';
@@ -45,7 +45,7 @@ function locationAttrs(location: LocationDto | null, now: Date): LocationAttrs {
 }
 
 const notFound = (): AppException =>
-  new AppException(ErrorCode.ProfileNotFound, 'Profile not found', HttpStatus.NOT_FOUND);
+  new AppException(ErrorCode.ProfileNotFound);
 
 /**
  * All operations are keyed by the authenticated user's id — there is no way to
@@ -139,17 +139,13 @@ export class ProfilesService {
       });
 
       if (existing && !existing.deletedAt) {
-        throw new AppException(ErrorCode.ProfileAlreadyExists, 'Profile already exists', HttpStatus.CONFLICT);
+        throw new AppException(ErrorCode.ProfileAlreadyExists);
       }
 
       if (existing) {
         // Re-creating after a profile deletion: the retained DOB cannot be changed.
         if (existing.dateOfBirth && existing.dateOfBirth !== dto.dateOfBirth) {
-          throw new AppException(
-            ErrorCode.ProfileDobLocked,
-            'Date of birth cannot be changed. Contact support if it is incorrect.',
-            HttpStatus.UNPROCESSABLE_ENTITY,
-          );
+          throw new AppException(ErrorCode.ProfileDobLocked);
         }
         await existing.restore({ transaction });
         existing.set(attrs);
@@ -164,7 +160,7 @@ export class ProfilesService {
         return await draft.save({ transaction });
       } catch (err) {
         if (err instanceof UniqueConstraintError) {
-          throw new AppException(ErrorCode.ProfileAlreadyExists, 'Profile already exists', HttpStatus.CONFLICT);
+          throw new AppException(ErrorCode.ProfileAlreadyExists);
         }
         throw err;
       }

@@ -1,6 +1,9 @@
 import { registerAs } from '@nestjs/config';
 
-import { envBool, envInt, envString } from './env.helpers';
+import { getValidatedEnv } from './env.validation';
+
+/** Guide M01: every instance keeps at least 2 connections open. */
+export const DB_POOL_MIN = 2;
 
 export interface DatabaseConfig {
   host: string;
@@ -8,21 +11,23 @@ export interface DatabaseConfig {
   username: string;
   password: string;
   database: string;
+  poolMin: number;
   poolMax: number;
   logging: boolean;
   ssl: boolean;
 }
 
-export default registerAs(
-  'database',
-  (): DatabaseConfig => ({
-    host: envString('DB_HOST', 'localhost'),
-    port: envInt('DB_PORT', 3306),
-    username: envString('DB_USERNAME'),
-    password: envString('DB_PASSWORD'),
-    database: envString('DB_DATABASE'),
-    poolMax: envInt('DB_POOL_MAX', 10),
-    logging: envBool('DB_LOGGING', false),
-    ssl: envBool('DB_SSL', false),
-  }),
-);
+export default registerAs('database', (): DatabaseConfig => {
+  const env = getValidatedEnv();
+  return {
+    host: env.DB_HOST,
+    port: env.DB_PORT,
+    username: env.DB_USER,
+    password: env.DB_PASSWORD,
+    database: env.DB_NAME,
+    poolMin: DB_POOL_MIN,
+    poolMax: env.DB_POOL_MAX,
+    logging: env.DB_LOGGING,
+    ssl: env.DB_SSL,
+  };
+});

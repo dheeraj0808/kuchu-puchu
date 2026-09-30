@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/sequelize';
 import type { Sequelize } from 'sequelize-typescript';
 
@@ -36,7 +36,7 @@ export class AccountService {
     await this.sequelize.transaction(async (transaction) => {
       const user = await this.users.findByIdForUpdate(principal.userId, transaction);
       if (!user) {
-        throw new AppException(ErrorCode.Unauthorized, 'Authentication required', HttpStatus.UNAUTHORIZED);
+        throw new AppException(ErrorCode.Unauthorized);
       }
 
       // Keyed hashes (never raw identifiers) so abuse/ban-evasion checks remain possible.

@@ -3,9 +3,9 @@ import databaseConfig from './database.config';
 import jwtConfig from './jwt.config';
 import otpConfig from './otp.config';
 import profileConfig from './profile.config';
-import { awsConfig, firebaseConfig, redisConfig } from './integrations.config';
+import { awsConfig, fcmConfig, redisConfig } from './integrations.config';
 
-export { validateEnv } from './env.validation';
+export { getValidatedEnv, validateEnv } from './env.validation';
 export { appConfig, databaseConfig, jwtConfig, otpConfig, profileConfig };
 
 export const configLoaders = [
@@ -16,5 +16,5 @@ export const configLoaders = [
   profileConfig,
   redisConfig,
   awsConfig,
-  firebaseConfig,
+  fcmConfig,
 ];

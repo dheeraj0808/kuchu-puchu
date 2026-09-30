@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/sequelize';
 import { type Transaction, UniqueConstraintError } from 'sequelize';
@@ -15,7 +15,7 @@ const DEFAULT_DISTANCE_KM = 50;
 const GENDER_ORDER = Object.values(Gender);
 
 const validationError = (message: string): AppException =>
-  new AppException(ErrorCode.ValidationError, 'Validation failed', HttpStatus.BAD_REQUEST, { errors: [message] });
+  new AppException(ErrorCode.ValidationError, { errors: [message] });
 
 /** One preference record per user; every method is keyed by the authenticated user id. */
 @Injectable()
@@ -56,7 +56,7 @@ export class PreferencesService {
   async update(userId: string, dto: UpdatePreferencesDto): Promise<PreferencesResponse> {
     const pref = await this.findByUserId(userId);
     if (!pref) {
-      throw new AppException(ErrorCode.PreferencesNotFound, 'Preferences not set yet', HttpStatus.NOT_FOUND);
+      throw new AppException(ErrorCode.PreferencesNotFound);
     }
     const merged = this.validated({
       minAge: dto.minAge ?? pref.minAge,
@@ -94,10 +94,6 @@ export class PreferencesService {
   }
 
   private alreadyExists(): AppException {
-    return new AppException(
-      ErrorCode.PreferencesAlreadyExist,
-      'Preferences already exist; use PATCH to update',
-      HttpStatus.CONFLICT,
-    );
+    return new AppException(ErrorCode.PreferencesAlreadyExist);
   }
 }

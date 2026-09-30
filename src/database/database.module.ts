@@ -33,7 +33,7 @@ const sqlLogger = new Logger('Sequelize');
           synchronize: false,
           retryAttempts: 5,
           retryDelay: 3000,
-          pool: { max: db.poolMax, min: 0, acquire: 30_000, idle: 10_000 },
+          pool: { max: db.poolMax, min: db.poolMin, acquire: 30_000, idle: 10_000 },
           define: {
             underscored: true,
             charset: 'utf8mb4',

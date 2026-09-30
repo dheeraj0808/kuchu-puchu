@@ -1,13 +1,12 @@
-import { randomUUID } from 'node:crypto';
-import type { IncomingMessage, ServerResponse } from 'node:http';
+import type { IncomingMessage } from 'node:http';
 
 import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { LoggerModule as PinoLoggerModule } from 'nestjs-pino';
 
 import type { AppConfig } from '../../config/app.config';
-
-const REQUEST_ID_PATTERN = /^[A-Za-z0-9-]{8,64}$/;
+import { API_PREFIX } from '../constants';
+import { resolveRequestId } from '../http/request-id.middleware';
 
 const REDACT_PATHS = [
   'req.headers.authorization',
@@ -50,16 +49,8 @@ interface SerializedReq {
                 }
               : undefined,
             redact: { paths: REDACT_PATHS, censor: '[REDACTED]' },
-            genReqId: (req: IncomingMessage, res: ServerResponse): string => {
-              const incoming = req.headers['x-request-id'];
-              const id =
-                typeof incoming === 'string' &&
-                REQUEST_ID_PATTERN.test(incoming)
-                  ? incoming
-                  : randomUUID();
-              res.setHeader('x-request-id', id);
-              return id;
-            },
+            // requestIdMiddleware (app.setup.ts) has usually set req.id already.
+            genReqId: (req: IncomingMessage): string => resolveRequestId(req),
             serializers: {
               req: (req: SerializedReq): SerializedReq => ({
                 id: req.id,
@@ -70,7 +61,7 @@ interface SerializedReq {
             },
             autoLogging: {
               ignore: (req: IncomingMessage): boolean =>
-                (req.url ?? '').split('?')[0] === '/api/health',
+                (req.url ?? '').split('?')[0] === `/${API_PREFIX}/health`,
             },
           },
         };

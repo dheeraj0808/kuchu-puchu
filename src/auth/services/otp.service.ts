@@ -1,7 +1,7 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/sequelize';
-import { literal, Op, type Transaction } from 'sequelize';
+import { literal, Op, type Transaction, type WhereOptions } from 'sequelize';
 
 import { AppException, ErrorCode } from '../../common/exceptions/app.exception';
 import type { RequestContext } from '../../common/utils/request-context';
@@ -78,31 +78,22 @@ export class OtpService {
       const cooldownMs = cfg.resendCooldownSeconds * 1000;
       if (elapsedMs < cooldownMs) {
         const retryAfterSeconds = Math.max(1, Math.ceil((cooldownMs - elapsedMs) / 1000));
-        throw new AppException(
-          ErrorCode.OtpCooldown,
-          'Please wait before requesting another verification code.',
-          HttpStatus.TOO_MANY_REQUESTS,
-          { retryAfterSeconds },
-        );
+        throw new AppException(ErrorCode.OtpCooldown, { retryAfterSeconds });
       }
     }
 
     const hourAgo = new Date(now.getTime() - ONE_HOUR_MS);
-    const identifierCount = await this.otpModel.count({
-      where: { identifierHash, identifierType: type, createdAt: { [Op.gt]: hourAgo } },
-      transaction,
-    });
+    const identifierWhere = { identifierHash, identifierType: type, createdAt: { [Op.gt]: hourAgo } };
+    const identifierCount = await this.otpModel.count({ where: identifierWhere, transaction });
     if (identifierCount >= cfg.maxRequestsPerHour) {
-      throw this.tooManyRequests();
+      throw await this.tooManyRequests(identifierWhere, now, transaction);
     }
 
     if (ctx.ipAddress) {
-      const ipCount = await this.otpModel.count({
-        where: { requestIp: ctx.ipAddress, createdAt: { [Op.gt]: hourAgo } },
-        transaction,
-      });
+      const ipWhere = { requestIp: ctx.ipAddress, createdAt: { [Op.gt]: hourAgo } };
+      const ipCount = await this.otpModel.count({ where: ipWhere, transaction });
       if (ipCount >= OTP_MAX_REQUESTS_PER_IP_PER_HOUR) {
-        throw this.tooManyRequests();
+        throw await this.tooManyRequests(ipWhere, now, transaction);
       }
     }
 
@@ -215,11 +206,15 @@ export class OtpService {
     await this.otpModel.update({ userId }, { where: { id: recordId }, transaction });
   }
 
-  private tooManyRequests(): AppException {
-    return new AppException(
-      ErrorCode.TooManyRequests,
-      'Too many verification code requests. Please try again later.',
-      HttpStatus.TOO_MANY_REQUESTS,
-    );
+  /** The window frees a slot when its oldest code turns one hour old. */
+  private async tooManyRequests(
+    where: WhereOptions<OtpVerification>,
+    now: Date,
+    transaction?: Transaction,
+  ): Promise<AppException> {
+    const oldest = await this.otpModel.min<Date | null, OtpVerification>('createdAt', { where, transaction });
+    const freesAt = oldest ? new Date(oldest).getTime() + ONE_HOUR_MS : now.getTime() + ONE_HOUR_MS;
+    const retryAfterSeconds = Math.max(1, Math.ceil((freesAt - now.getTime()) / 1000));
+    return new AppException(ErrorCode.TooManyRequests, { retryAfterSeconds });
   }
 }

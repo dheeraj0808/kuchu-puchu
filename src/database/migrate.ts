@@ -32,9 +32,9 @@ function envBool(name: string): boolean {
 }
 
 function databaseName(): string {
-  const name = requireEnv('DB_DATABASE');
+  const name = requireEnv('DB_NAME');
   if (!DB_NAME_PATTERN.test(name)) {
-    throw new Error('DB_DATABASE contains invalid characters');
+    throw new Error('DB_NAME contains invalid characters');
   }
   return name;
 }
@@ -48,7 +48,7 @@ function buildSequelize(withDatabase: boolean): Sequelize {
     dialect: 'mysql',
     host: process.env.DB_HOST ?? 'localhost',
     port,
-    username: requireEnv('DB_USERNAME'),
+    username: requireEnv('DB_USER'),
     password: process.env.DB_PASSWORD ?? '',
     timezone: '+00:00',
     logging: false,

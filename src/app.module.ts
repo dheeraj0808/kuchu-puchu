@@ -2,9 +2,10 @@ import { DynamicModule, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { createObserveModule } from '@nestjs/observe';
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 
-import { configLoaders, validateEnv } from './config';
+import { configLoaders, getValidatedEnv, validateEnv } from './config';
+import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
 import { LoggerModule } from './common/logging/logger.module';
 import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
@@ -30,11 +31,10 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
 /**
  * Observe is only enabled when real credentials are configured.
- * Evaluated after ConfigModule.forRoot() so values from .env are loaded.
+ * Evaluated after ConfigModule.forRoot(), which has already validated the env.
  */
 function observeImports(): DynamicModule[] {
-  const appKey = process.env.OBSERVE_APP_KEY;
-  const appSecret = process.env.OBSERVE_APP_SECRET;
+  const { OBSERVE_APP_KEY: appKey, OBSERVE_APP_SECRET: appSecret } = getValidatedEnv();
   if (!appKey || !appSecret) return [];
   return [ObserveModule.forRoot({ appKey, appSecret, serviceId: 'backend' })];
 }
@@ -73,6 +73,6 @@ function observeImports(): DynamicModule[] {
     BlocksModule,
     AdminModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [{ provide: APP_GUARD, useClass: AppThrottlerGuard }],
 })
 export class AppModule {}

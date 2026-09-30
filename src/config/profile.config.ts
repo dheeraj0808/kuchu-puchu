@@ -1,6 +1,6 @@
 import { registerAs } from '@nestjs/config';
 
-import { envInt } from './env.helpers';
+import { getValidatedEnv } from './env.validation';
 
 export interface ProfileConfig {
   maxInterests: number;
@@ -8,11 +8,11 @@ export interface ProfileConfig {
   maxDistanceKm: number;
 }
 
-export default registerAs(
-  'profile',
-  (): ProfileConfig => ({
-    maxInterests: envInt('PROFILE_MAX_INTERESTS', 10),
-    minDistanceKm: envInt('PREFERENCES_MIN_DISTANCE_KM', 1),
-    maxDistanceKm: envInt('PREFERENCES_MAX_DISTANCE_KM', 500),
-  }),
-);
+export default registerAs('profile', (): ProfileConfig => {
+  const env = getValidatedEnv();
+  return {
+    maxInterests: env.PROFILE_MAX_INTERESTS,
+    minDistanceKm: env.PREFERENCES_MIN_DISTANCE_KM,
+    maxDistanceKm: env.PREFERENCES_MAX_DISTANCE_KM,
+  };
+});

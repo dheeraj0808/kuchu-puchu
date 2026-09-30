@@ -1,4 +1,4 @@
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/sequelize';
 import { Op, type Transaction } from 'sequelize';
@@ -59,13 +59,13 @@ export class InterestsService {
   async replaceForProfile(profileId: string, interestIds: string[], transaction: Transaction): Promise<number> {
     const ids = [...new Set(interestIds)];
     if (ids.length !== interestIds.length) {
-      throw new AppException(ErrorCode.ValidationError, 'Validation failed', HttpStatus.BAD_REQUEST, {
+      throw new AppException(ErrorCode.ValidationError, {
         errors: ['interestIds must not contain duplicates'],
       });
     }
     const max = this.maxInterests;
     if (ids.length > max) {
-      throw new AppException(ErrorCode.ValidationError, 'Validation failed', HttpStatus.BAD_REQUEST, {
+      throw new AppException(ErrorCode.ValidationError, {
         errors: [`You can select at most ${max} interests`],
       });
     }
@@ -78,12 +78,9 @@ export class InterestsService {
       });
       if (found.length !== ids.length) {
         const valid = new Set(found.map((f) => f.id));
-        throw new AppException(
-          ErrorCode.InvalidInterests,
-          'One or more interests are invalid or unavailable',
-          HttpStatus.BAD_REQUEST,
-          { invalidInterestIds: ids.filter((id) => !valid.has(id)) },
-        );
+        throw new AppException(ErrorCode.InvalidInterests, {
+          invalidInterestIds: ids.filter((id) => !valid.has(id)),
+        });
       }
     }
 

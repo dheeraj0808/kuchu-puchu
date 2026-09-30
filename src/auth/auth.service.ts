@@ -28,8 +28,6 @@ import { TokenService } from './services/token.service';
 import { normalizeIdentifier } from './utils/identifier.util';
 
 export const OTP_REQUEST_MESSAGE = 'If the details are valid, a verification code has been sent.';
-const OTP_INVALID_MESSAGE = 'Invalid or expired verification code';
-const ACCOUNT_RESTRICTED_MESSAGE = 'This account cannot sign in. Contact support.';
 const HASH_PREFIX_LENGTH = 12;
 
 @Injectable()
@@ -88,11 +86,7 @@ export class AuthService {
         context: ctx,
         metadata,
       });
-      throw new AppException(
-        ErrorCode.OtpDeliveryFailed,
-        'Unable to send verification code. Please try again later.',
-        HttpStatus.SERVICE_UNAVAILABLE,
-      );
+      throw new AppException(ErrorCode.OtpDeliveryFailed);
     }
 
     await this.securityEvents.record({
@@ -120,7 +114,7 @@ export class AuthService {
         context: ctx,
         metadata: { identifierType: type, identifierHashPrefix, reason: result.reason },
       });
-      throw new AppException(ErrorCode.OtpInvalid, OTP_INVALID_MESSAGE, HttpStatus.UNAUTHORIZED);
+      throw new AppException(ErrorCode.OtpInvalid);
     }
 
     const otpRecordId = result.record.id;
@@ -169,7 +163,7 @@ export class AuthService {
         context: ctx,
         metadata: { identifierType: type, stage: 'verify_otp' },
       });
-      throw new AppException(ErrorCode.AccountRestricted, ACCOUNT_RESTRICTED_MESSAGE, HttpStatus.FORBIDDEN);
+      throw new AppException(ErrorCode.AccountRestricted);
     }
 
     const { user, session, refreshToken } = outcome;
@@ -225,7 +219,7 @@ export class AuthService {
   async me(principal: AuthenticatedUser): Promise<MeResponseDto> {
     const user = await this.users.findById(principal.userId);
     if (!user || !user.canAuthenticate()) {
-      throw new AppException(ErrorCode.Unauthorized, 'Authentication required', HttpStatus.UNAUTHORIZED);
+      throw new AppException(ErrorCode.Unauthorized);
     }
     const profile = await this.profiles.getOwnOrNull(user.id);
     return MeResponseDto.fromUserAndProfile(user, profile);

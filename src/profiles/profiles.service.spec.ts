@@ -257,7 +257,7 @@ describe('ProfilesService', () => {
       const profile = fakeProfile({ userId: USER_ID });
       model.findOne.mockResolvedValue(profile);
       interestsService.replaceForProfile.mockRejectedValue(
-        new AppException(ErrorCode.InvalidInterests, 'bad', 400),
+        new AppException(ErrorCode.InvalidInterests),
       );
       await expectAppError(service.replaceOwnInterests(USER_ID, ['x']), ErrorCode.InvalidInterests, 400);
       expect(profile.save).not.toHaveBeenCalled();

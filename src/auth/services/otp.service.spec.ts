@@ -10,6 +10,7 @@ import { OtpService } from './otp.service';
 type ModelMock = {
   findOne: jest.Mock;
   count: jest.Mock;
+  min: jest.Mock;
   update: jest.Mock;
   create: jest.Mock;
 };
@@ -21,6 +22,7 @@ function setup(): { service: OtpService; model: ModelMock } {
   const model: ModelMock = {
     findOne: jest.fn().mockResolvedValue(null),
     count: jest.fn().mockResolvedValue(0),
+    min: jest.fn().mockResolvedValue(null),
     update: jest.fn().mockResolvedValue([1]),
     create: jest.fn((attrs: Record<string, unknown>) => Promise.resolve({ id: 'rec-1', ...attrs })),
   };
@@ -86,16 +88,21 @@ describe('OtpService', () => {
     it('enforces hourly per-identifier cap', async () => {
       const { service, model } = setup();
       model.count.mockResolvedValueOnce(TEST_OTP_CONFIG.maxRequestsPerHour);
+      // Oldest code in the window was sent 50 minutes ago, so a slot frees in 10 minutes.
+      model.min.mockResolvedValueOnce(new Date(Date.now() - 50 * 60_000));
       await expect(service.issue(IdentifierType.Email, EMAIL, null, ctx)).rejects.toMatchObject({
         code: ErrorCode.TooManyRequests,
+        details: { retryAfterSeconds: 600 },
       });
     });
 
     it('enforces per-IP hourly cap', async () => {
       const { service, model } = setup();
       model.count.mockResolvedValueOnce(0).mockResolvedValueOnce(20);
+      model.min.mockResolvedValueOnce(new Date(Date.now() - 50 * 60_000));
       await expect(service.issue(IdentifierType.Email, EMAIL, null, ctx)).rejects.toMatchObject({
         code: ErrorCode.TooManyRequests,
+        details: { retryAfterSeconds: 600 },
       });
     });
   });

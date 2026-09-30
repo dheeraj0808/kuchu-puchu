@@ -6,6 +6,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  Matches,
   Max,
   Min,
   MinLength,
@@ -19,13 +20,21 @@ export enum Environment {
   Production = 'production',
 }
 
+/** Secrets that must be ≥ 32 chars and all different from each other (guide S2). */
+export const SECRET_KEYS = ['JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET', 'OTP_HASH_SECRET'] as const;
+
 // Read the raw value: implicit conversion would turn the string 'false' into true.
 const toBool = ({ obj, key }: { obj: Record<string, unknown>; key: string }): unknown => {
   const raw = obj[key];
   return typeof raw === 'string' ? raw.trim().toLowerCase() === 'true' : raw;
 };
 
-class EnvironmentVariables {
+/**
+ * Every environment variable the app reads (guide Appendix D). Config loaders
+ * read these validated, typed values; nothing else reads process.env.
+ */
+export class EnvironmentVariables {
+  // App
   @IsEnum(Environment)
   NODE_ENV: Environment = Environment.Development;
 
@@ -38,6 +47,7 @@ class EnvironmentVariables {
   @IsString()
   CORS_ORIGINS?: string;
 
+  /** Required in production (checked below). */
   @IsOptional()
   @IsString()
   TRUST_PROXY?: string;
@@ -46,9 +56,11 @@ class EnvironmentVariables {
   @IsString()
   LOG_LEVEL?: string;
 
+  /** Defaults to on outside production (resolved in app.config.ts). */
+  @IsOptional()
   @IsBoolean()
   @Transform(toBool)
-  SWAGGER_ENABLED: boolean = true;
+  SWAGGER_ENABLED?: boolean;
 
   // Database
   @IsString()
@@ -60,18 +72,18 @@ class EnvironmentVariables {
 
   @IsString()
   @IsNotEmpty()
-  DB_USERNAME: string;
+  DB_USER: string;
 
   @IsString()
   DB_PASSWORD: string = '';
 
   @IsString()
   @IsNotEmpty()
-  DB_DATABASE: string;
+  DB_NAME: string;
 
   @IsInt()
-  @Min(1)
-  DB_POOL_MAX: number = 10;
+  @Min(2)
+  DB_POOL_MAX: number = 20;
 
   @IsBoolean()
   @Transform(toBool)
@@ -80,6 +92,15 @@ class EnvironmentVariables {
   @IsBoolean()
   @Transform(toBool)
   DB_SSL: boolean = false;
+
+  // Redis
+  @IsOptional()
+  @Matches(/^rediss?:\/\/\S+$/, { message: 'REDIS_URL must be a redis:// or rediss:// URL' })
+  REDIS_URL?: string;
+
+  @IsBoolean()
+  @Transform(toBool)
+  REDIS_TLS: boolean = false;
 
   // JWT
   @IsString()
@@ -91,7 +112,7 @@ class EnvironmentVariables {
   JWT_REFRESH_SECRET: string;
 
   @IsString()
-  JWT_ACCESS_EXPIRES_IN: string = '15m';
+  JWT_ACCESS_TTL: string = '15m';
 
   @IsString()
   JWT_REFRESH_EXPIRES_IN: string = '7d';
@@ -127,7 +148,7 @@ class EnvironmentVariables {
 
   @IsInt()
   @Min(1)
-  OTP_MAX_REQUESTS_PER_HOUR: number = 5;
+  OTP_MAX_PER_HOUR: number = 5;
 
   @IsBoolean()
   @Transform(toBool)
@@ -148,30 +169,26 @@ class EnvironmentVariables {
   @Max(20000)
   PREFERENCES_MAX_DISTANCE_KM: number = 500;
 
-  // Future integrations (optional for now)
-  @IsOptional() @IsString() REDIS_HOST?: string;
-  @IsOptional() @IsInt() REDIS_PORT?: number;
-  @IsOptional() @IsString() REDIS_PASSWORD?: string;
+  // AWS / push (consumed by later modules)
   @IsOptional() @IsString() AWS_REGION?: string;
-  @IsOptional() @IsString() AWS_ACCESS_KEY_ID?: string;
-  @IsOptional() @IsString() AWS_SECRET_ACCESS_KEY?: string;
-  @IsOptional() @IsString() AWS_S3_BUCKET?: string;
-  @IsOptional() @IsString() FIREBASE_PROJECT_ID?: string;
-  @IsOptional() @IsString() FIREBASE_CLIENT_EMAIL?: string;
-  @IsOptional() @IsString() FIREBASE_PRIVATE_KEY?: string;
+  @IsOptional() @IsString() FCM_PROJECT_ID?: string;
+  @IsOptional() @IsString() FCM_CLIENT_EMAIL?: string;
+  @IsOptional() @IsString() FCM_PRIVATE_KEY?: string;
+
+  // NestJS Observe (optional; not in Appendix D)
   @IsOptional() @IsString() OBSERVE_APP_KEY?: string;
   @IsOptional() @IsString() OBSERVE_APP_SECRET?: string;
 }
 
-export function validateEnv(
-  config: Record<string, unknown>,
-): EnvironmentVariables {
+let validatedEnv: EnvironmentVariables | undefined;
+
+/** Validates the raw environment. Throws with variable names only, never values. */
+export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {
   const validated = plainToInstance(EnvironmentVariables, config, {
     enableImplicitConversion: true,
   });
   const errors = validateSync(validated, { skipMissingProperties: false });
   if (errors.length > 0) {
-    // Only property names and constraint messages — never values.
     const details = errors
       .map((e) => `${e.property}: ${Object.values(e.constraints ?? {}).join(', ')}`)
       .join('\n');
@@ -182,14 +199,35 @@ export function validateEnv(
   if (isProd && validated.OTP_DEV_ECHO) {
     throw new Error('OTP_DEV_ECHO must not be enabled in production');
   }
-  if (validated.PREFERENCES_MIN_DISTANCE_KM > validated.PREFERENCES_MAX_DISTANCE_KM) {
-    throw new Error('PREFERENCES_MIN_DISTANCE_KM must not exceed PREFERENCES_MAX_DISTANCE_KM');
-  }
   if (isProd && !validated.CORS_ORIGINS) {
     throw new Error('CORS_ORIGINS must be set in production');
   }
-  if (validated.JWT_ACCESS_SECRET === validated.JWT_REFRESH_SECRET) {
-    throw new Error('JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must differ');
+  if (isProd && !validated.TRUST_PROXY) {
+    throw new Error('TRUST_PROXY must be set in production');
   }
+  if (validated.PREFERENCES_MIN_DISTANCE_KM > validated.PREFERENCES_MAX_DISTANCE_KM) {
+    throw new Error('PREFERENCES_MIN_DISTANCE_KM must not exceed PREFERENCES_MAX_DISTANCE_KM');
+  }
+  assertSecretsDistinct(validated);
+
+  validatedEnv = validated;
   return validated;
+}
+
+function assertSecretsDistinct(env: EnvironmentVariables): void {
+  for (let i = 0; i < SECRET_KEYS.length; i++) {
+    for (let j = i + 1; j < SECRET_KEYS.length; j++) {
+      if (env[SECRET_KEYS[i]] === env[SECRET_KEYS[j]]) {
+        throw new Error(`${SECRET_KEYS[i]} and ${SECRET_KEYS[j]} must differ`);
+      }
+    }
+  }
+}
+
+/**
+ * The validated environment used by config loaders. ConfigModule runs
+ * validateEnv first; standalone callers get process.env validated on demand.
+ */
+export function getValidatedEnv(): EnvironmentVariables {
+  return validatedEnv ?? validateEnv(process.env);
 }

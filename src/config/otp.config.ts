@@ -1,6 +1,6 @@
 import { registerAs } from '@nestjs/config';
 
-import { envBool, envInt, envString } from './env.helpers';
+import { Environment, getValidatedEnv } from './env.validation';
 
 export interface OtpConfig {
   hashSecret: string;
@@ -12,17 +12,16 @@ export interface OtpConfig {
   devEcho: boolean;
 }
 
-export default registerAs(
-  'otp',
-  (): OtpConfig => ({
-    hashSecret: envString('OTP_HASH_SECRET'),
-    length: envInt('OTP_LENGTH', 6),
-    ttlSeconds: envInt('OTP_TTL_SECONDS', 300),
-    maxAttempts: envInt('OTP_MAX_ATTEMPTS', 5),
-    resendCooldownSeconds: envInt('OTP_RESEND_COOLDOWN_SECONDS', 60),
-    maxRequestsPerHour: envInt('OTP_MAX_REQUESTS_PER_HOUR', 5),
-    // Never allowed in production (enforced in env.validation.ts).
-    devEcho:
-      envString('NODE_ENV') !== 'production' && envBool('OTP_DEV_ECHO', false),
-  }),
-);
+export default registerAs('otp', (): OtpConfig => {
+  const env = getValidatedEnv();
+  return {
+    hashSecret: env.OTP_HASH_SECRET,
+    length: env.OTP_LENGTH,
+    ttlSeconds: env.OTP_TTL_SECONDS,
+    maxAttempts: env.OTP_MAX_ATTEMPTS,
+    resendCooldownSeconds: env.OTP_RESEND_COOLDOWN_SECONDS,
+    maxRequestsPerHour: env.OTP_MAX_PER_HOUR,
+    // Never allowed in production (also rejected by validateEnv).
+    devEcho: env.NODE_ENV !== Environment.Production && env.OTP_DEV_ECHO,
+  };
+});

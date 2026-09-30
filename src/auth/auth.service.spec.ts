@@ -96,7 +96,7 @@ describe('AuthService', () => {
     it('records throttling and rethrows cooldown', async () => {
       const s = setup();
       s.otp.issue.mockRejectedValue(
-        new AppException(ErrorCode.OtpCooldown, 'wait', HttpStatus.TOO_MANY_REQUESTS, { retryAfterSeconds: 30 }),
+        new AppException(ErrorCode.OtpCooldown, { retryAfterSeconds: 30 }),
       );
       await expect(
         s.service.requestOtp({ identifierType: IdentifierType.Email, identifier: EMAIL }, ctx),

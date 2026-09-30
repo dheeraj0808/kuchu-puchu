@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { HttpStatus, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
 import { Op, type Transaction } from 'sequelize';
 
@@ -134,11 +134,7 @@ export class SessionService {
         context: ctx,
         metadata: { sessionId: session.id, stage: 'refresh' },
       });
-      throw new AppException(
-        ErrorCode.AccountRestricted,
-        'This account cannot sign in. Contact support.',
-        HttpStatus.FORBIDDEN,
-      );
+      throw new AppException(ErrorCode.AccountRestricted);
     }
 
     const newSecret = this.tokens.generateRefreshSecret();
@@ -227,10 +223,6 @@ export class SessionService {
   }
 
   private invalidRefreshToken(): AppException {
-    return new AppException(
-      ErrorCode.InvalidRefreshToken,
-      'Invalid or expired refresh token',
-      HttpStatus.UNAUTHORIZED,
-    );
+    return new AppException(ErrorCode.InvalidRefreshToken);
   }
 }

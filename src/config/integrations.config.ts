@@ -1,23 +1,27 @@
 import { registerAs } from '@nestjs/config';
 
-import { envInt, envString } from './env.helpers';
+import { getValidatedEnv } from './env.validation';
+
+export interface RedisConfig {
+  url: string | undefined;
+  tls: boolean;
+}
+
+export const redisConfig = registerAs('redis', (): RedisConfig => {
+  const env = getValidatedEnv();
+  return { url: env.REDIS_URL, tls: env.REDIS_TLS };
+});
 
 // Placeholders for upcoming integrations. Not consumed yet.
-export const redisConfig = registerAs('redis', () => ({
-  host: envString('REDIS_HOST'),
-  port: envInt('REDIS_PORT', 6379),
-  password: envString('REDIS_PASSWORD'),
-}));
-
 export const awsConfig = registerAs('aws', () => ({
-  region: envString('AWS_REGION'),
-  accessKeyId: envString('AWS_ACCESS_KEY_ID'),
-  secretAccessKey: envString('AWS_SECRET_ACCESS_KEY'),
-  s3Bucket: envString('AWS_S3_BUCKET'),
+  region: getValidatedEnv().AWS_REGION ?? '',
 }));
 
-export const firebaseConfig = registerAs('firebase', () => ({
-  projectId: envString('FIREBASE_PROJECT_ID'),
-  clientEmail: envString('FIREBASE_CLIENT_EMAIL'),
-  privateKey: envString('FIREBASE_PRIVATE_KEY').replace(/\\n/g, '\n'),
-}));
+export const fcmConfig = registerAs('fcm', () => {
+  const env = getValidatedEnv();
+  return {
+    projectId: env.FCM_PROJECT_ID ?? '',
+    clientEmail: env.FCM_CLIENT_EMAIL ?? '',
+    privateKey: (env.FCM_PRIVATE_KEY ?? '').replace(/\\n/g, '\n'),
+  };
+});
