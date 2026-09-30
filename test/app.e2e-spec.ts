@@ -1,4 +1,5 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import { Sequelize } from 'sequelize-typescript';
 import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
@@ -23,6 +24,11 @@ describe('App (e2e)', () => {
 
   afterAll(async () => {
     await app.close();
+  });
+
+  it('runs against the dedicated test database, never the dev one', async () => {
+    const [rows] = await app.get(Sequelize).query('SELECT DATABASE() AS db');
+    expect((rows as { db: string }[])[0].db).toMatch(/_test$/);
   });
 
   it('serves routes under /api/v1 with the §4.1 success body', async () => {

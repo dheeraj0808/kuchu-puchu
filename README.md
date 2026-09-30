@@ -47,15 +47,14 @@ $ npm run start:prod
 ## Run tests
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npm test            # unit tests (no database or Redis)
+npm run test:e2e    # e2e tests against a real MySQL
+npm run test:cov    # unit test coverage
 ```
+
+### Tests never touch dev data
+
+- **MySQL:** e2e tests always use a dedicated database, `kuchu_puchu_test` by default. You can override it with `TEST_DB_NAME`, but the name must end in `_test` or the run refuses to start (`test/support/test-env.ts`). Before the suite runs, `test/support/global-setup.ts` creates that database if needed and applies all migrations. The connection details (`DB_HOST`, `DB_USER`, `DB_PASSWORD`) come from `.env`; only the database name is replaced. One e2e test checks `SELECT DATABASE()` to prove it.
 
 ## Deployment
 

@@ -158,3 +158,32 @@ These are outside M01, so they aren't scored. Listed only so they don't get lost
 - **§3.4 folder layout:** there is no `src/infra/` or `src/modules/`. Feature modules sit directly under `src/`.
 - **Stub modules:** stub feature modules are already imported in `src/app.module.ts:60-74` (discovery, matching, likes, chat, media, and others).
 - **Observe module:** `@nestjs/observe` is wired in `src/app.module.ts:29-40`. The guide doesn't mention it.
+
+---
+
+## Implementation notes
+
+### Not in Appendix C
+
+These codes are in `src/common/exceptions/error-codes.ts` but not in Appendix C. They stay because existing code returns them.
+
+| Code | HTTP | Used by |
+|---|---|---|
+| `INVALID_REQUEST` | 400 | Framework 400s that aren't validation errors; other client-side body-parser errors |
+| `INVALID_INTERESTS` | 400 | `InterestsService.replaceForProfile` |
+| `PAYLOAD_TOO_LARGE` | 413 | Body over the 100 kb limit (`body-parser-errors.middleware.ts`) |
+| `INVALID_REFRESH_TOKEN` | 401 | `SessionService.rotate` |
+| `NOT_FOUND` | 404 | Unknown path or wrong HTTP method |
+| `PREFERENCES_NOT_FOUND` | 404 | `PreferencesService.update` |
+| `PREFERENCES_ALREADY_EXIST` | 409 | `PreferencesService.create` |
+
+### Env vars kept without an Appendix D name
+
+These have no Appendix D equivalent, so they are unchanged: `JWT_REFRESH_EXPIRES_IN` (session lifetime moves to `SESSION_SLIDING_DAYS`/`SESSION_MAX_DAYS` in M06), `JWT_ISSUER`, `JWT_AUDIENCE`, `DB_LOGGING`, `DB_SSL`, `PROFILE_MAX_INTERESTS`, `PREFERENCES_MIN_DISTANCE_KM`, `PREFERENCES_MAX_DISTANCE_KM`, `OBSERVE_APP_KEY`, `OBSERVE_APP_SECRET`.
+
+Removed because nothing used them and Appendix D doesn't list them: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` (production uses the IAM role), `AWS_S3_BUCKET`.
+
+### Follow-ups outside M01
+
+- **Mobile app:** mobile-app `EXPO_PUBLIC_API_URL` must change to `/api/v1` when this merges.
+- **M06:** the auth routes are `/auth/request-otp` and `/auth/verify-otp`. The guide says `/auth/otp/request` and `/auth/otp/verify`. Rename them in M06.
