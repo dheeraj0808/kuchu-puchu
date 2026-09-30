@@ -1,12 +1,20 @@
-import { Module } from '@nestjs/common';
+import { DynamicModule, Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
 import { createObserveModule } from '@nestjs/observe';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { configLoaders, validateEnv } from './config';
+import { LoggerModule } from './common/logging/logger.module';
+import { DatabaseModule } from './database/database.module';
+import { HealthModule } from './health/health.module';
+import { SecurityModule } from './security/security.module';
 
+import { AccountModule } from './account/account.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
+import { InterestsModule } from './interests/interests.module';
+import { PreferencesModule } from './preferences/preferences.module';
 import { ProfilesModule } from './profiles/profiles.module';
 import { DiscoveryModule } from './discovery/discovery.module';
 import { MatchingModule } from './matching/matching.module';
@@ -20,23 +28,41 @@ import { AdminModule } from './admin/admin.module';
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
 
+/**
+ * Observe is only enabled when real credentials are configured.
+ * Evaluated after ConfigModule.forRoot() so values from .env are loaded.
+ */
+function observeImports(): DynamicModule[] {
+  const appKey = process.env.OBSERVE_APP_KEY;
+  const appSecret = process.env.OBSERVE_APP_SECRET;
+  if (!appKey || !appSecret) return [];
+  return [ObserveModule.forRoot({ appKey, appSecret, serviceId: 'backend' })];
+}
+
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
+      cache: true,
+      load: configLoaders,
+      validate: validateEnv,
+      envFilePath: '.env',
     }),
+    ...observeImports(),
 
-    // Keep Observe for now.
-    // Replace these values with real credentials when we configure it.
-    ObserveModule.forRoot({
-      appKey: 'YOUR_APP_KEY',
-      appSecret: 'YOUR_APP_SECRET',
-      serviceId: 'backend',
-    }),
+    LoggerModule,
+    DatabaseModule,
+    // TODO: switch to Redis-backed throttler storage for multi-instance deployments.
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 100 }]),
+    SecurityModule,
+    HealthModule,
 
     AuthModule,
+    AccountModule,
     UsersModule,
     ProfilesModule,
+    InterestsModule,
+    PreferencesModule,
     DiscoveryModule,
     MatchingModule,
     LikesModule,
@@ -47,8 +73,6 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     BlocksModule,
     AdminModule,
   ],
-
-  controllers: [AppController],
-  providers: [AppService],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
-export class AppModule { }
+export class AppModule {}

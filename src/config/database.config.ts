@@ -1,9 +1,28 @@
 import { registerAs } from '@nestjs/config';
 
-export default registerAs('database', () => ({
-    host: process.env.DB_HOST,
-    port: Number(process.env.DB_PORT ?? 3306),
-    username: process.env.DB_USERNAME,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_DATABASE,
-}));
+import { envBool, envInt, envString } from './env.helpers';
+
+export interface DatabaseConfig {
+  host: string;
+  port: number;
+  username: string;
+  password: string;
+  database: string;
+  poolMax: number;
+  logging: boolean;
+  ssl: boolean;
+}
+
+export default registerAs(
+  'database',
+  (): DatabaseConfig => ({
+    host: envString('DB_HOST', 'localhost'),
+    port: envInt('DB_PORT', 3306),
+    username: envString('DB_USERNAME'),
+    password: envString('DB_PASSWORD'),
+    database: envString('DB_DATABASE'),
+    poolMax: envInt('DB_POOL_MAX', 10),
+    logging: envBool('DB_LOGGING', false),
+    ssl: envBool('DB_SSL', false),
+  }),
+);
