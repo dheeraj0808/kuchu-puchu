@@ -6,9 +6,9 @@ import { LoggerModule as PinoLoggerModule } from 'nestjs-pino';
 import type { Options as PinoHttpOptions } from 'pino-http';
 
 import type { AppConfig } from '../../config/app.config';
-import { API_PREFIX } from '../constants';
 import { resolveRequestId } from '../http/request-id.middleware';
 import { REDACTED, redactDeep } from './redact';
+import { requestLogLevel } from './request-log-level';
 
 /**
  * Exact paths for things that must go whole (raw headers, request bodies).
@@ -55,10 +55,8 @@ export function buildPinoHttpOptions(app: AppConfig): PinoHttpOptions {
         remoteAddress: req.remoteAddress,
       }),
     },
-    autoLogging: {
-      ignore: (req: IncomingMessage): boolean =>
-        (req.url ?? '').split('?')[0] === `/${API_PREFIX}/health`,
-    },
+    // Health checks (M02) are logged at debug only, so load balancer probes don't flood the logs.
+    customLogLevel: requestLogLevel,
   };
 }
 
