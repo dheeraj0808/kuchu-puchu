@@ -196,10 +196,72 @@ export class EnvironmentVariables {
   @IsOptional() @IsString() FCM_CLIENT_EMAIL?: string;
   @IsOptional() @IsString() FCM_PRIVATE_KEY?: string;
 
+  // Outbox and jobs (M03; not in Appendix D)
+  @IsInt()
+  @Min(100)
+  @Max(60_000)
+  OUTBOX_RELAY_INTERVAL_MS: number = 1000;
+
+  /** Must be below OUTBOX_RELAY_INTERVAL_MS (checked below) so ticks do not overlap. */
+  @IsInt()
+  @Min(50)
+  @Max(60_000)
+  OUTBOX_RELAY_TIME_BUDGET_MS: number = 800;
+
+  @IsInt()
+  @Min(1)
+  @Max(1000)
+  OUTBOX_BATCH_SIZE: number = 200;
+
+  /** attempts is a TINYINT UNSIGNED column. */
+  @IsInt()
+  @Min(1)
+  @Max(16)
+  OUTBOX_MAX_ATTEMPTS: number = 8;
+
+  @IsInt()
+  @Min(1)
+  @Max(60_000)
+  OUTBOX_BACKOFF_BASE_MS: number = 1000;
+
+  @IsInt()
+  @Min(100)
+  @Max(30_000)
+  OUTBOX_ENQUEUE_TIMEOUT_MS: number = 1000;
+
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  OUTBOX_CLEANUP_AGE_DAYS: number = 7;
+
+  /** 21:30 UTC is 03:00 IST, the low-traffic hour for our users. */
+  @Matches(/^\S+( \S+){4}$/, { message: 'OUTBOX_CLEANUP_CRON must be a 5-field cron pattern' })
+  OUTBOX_CLEANUP_CRON: string = '30 21 * * *';
+
+  @IsInt()
+  @Min(256)
+  @Max(65_536)
+  OUTBOX_PAYLOAD_MAX_BYTES: number = 16_384;
+
+  @IsInt()
+  @Min(1)
+  @Max(720)
+  OUTBOX_COMPLETED_JOB_RETENTION_HOURS: number = 24;
+
+  @IsInt()
+  @Min(1)
+  @Max(90)
+  OUTBOX_FAILED_JOB_RETENTION_DAYS: number = 14;
+
   // Monitoring. Sentry is only enabled when SENTRY_DSN is set.
   @IsOptional()
   @Matches(/^https:\/\/\S+$/, { message: 'SENTRY_DSN must be an https:// URL' })
   SENTRY_DSN?: string;
+
+  /** Slack-compatible incoming webhook for job alerts. Required in production (checked below). */
+  @IsOptional()
+  @Matches(/^https:\/\/\S+$/, { message: 'ALERT_WEBHOOK_URL must be an https:// URL' })
+  ALERT_WEBHOOK_URL?: string;
 
   // NestJS Observe (optional; not in Appendix D)
   @IsOptional() @IsString() OBSERVE_APP_KEY?: string;
@@ -233,6 +295,12 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
   }
   if (isProd && !validated.REDIS_URL) {
     throw new Error('REDIS_URL must be set in production');
+  }
+  if (isProd && !validated.ALERT_WEBHOOK_URL) {
+    throw new Error('ALERT_WEBHOOK_URL must be set in production');
+  }
+  if (validated.OUTBOX_RELAY_TIME_BUDGET_MS >= validated.OUTBOX_RELAY_INTERVAL_MS) {
+    throw new Error('OUTBOX_RELAY_TIME_BUDGET_MS must be below OUTBOX_RELAY_INTERVAL_MS');
   }
   if (validated.PREFERENCES_MIN_DISTANCE_KM > validated.PREFERENCES_MAX_DISTANCE_KM) {
     throw new Error('PREFERENCES_MIN_DISTANCE_KM must not exceed PREFERENCES_MAX_DISTANCE_KM');

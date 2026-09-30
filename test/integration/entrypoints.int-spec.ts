@@ -1,8 +1,12 @@
 import { type ChildProcess, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:net';
 import { resolve } from 'node:path';
 
 import request from 'supertest';
+
+import { OutboxHarness } from '../support/outbox-harness';
+import { clearTestKeys } from '../support/test-redis';
 
 const ROOT = resolve(__dirname, '../..');
 
@@ -85,7 +89,7 @@ describe('entry points (APP_ROLE)', () => {
     const worker = start('src/main.ts', { APP_ROLE: 'worker' });
     running.push(worker);
     await waitFor(worker, 'worker ready');
-    expect(worker.output()).toContain('No queues registered yet (M03)');
+    expect(worker.output()).toContain('Job schedulers registered: outbox.relay, outbox.cleanup');
     await stopGracefully(worker, 'worker');
   });
 
@@ -102,5 +106,33 @@ describe('entry points (APP_ROLE)', () => {
     const { code } = await wrong.exited;
     expect(code).toBe(1);
     expect(wrong.output()).toContain('APP_ROLE=api, but the worker entry point was started');
+  });
+
+  it('worker: on SIGTERM an in-flight handler finishes, then the process exits 0', async () => {
+    const h = await OutboxHarness.create();
+    try {
+      await h.truncate();
+      await clearTestKeys(process.env.REDIS_URL as string);
+      const worker = start('test/support/outbox-worker-fixture.ts', { APP_ROLE: 'worker', FIXTURE_HANDLER_MS: '1500' });
+      running.push(worker);
+      await waitFor(worker, 'worker ready');
+      expect(worker.output()).toContain('Job schedulers registered: outbox.relay, outbox.cleanup');
+
+      const [outboxId] = await h.publishMany(1, randomUUID());
+      await waitFor(worker, `handler started ${outboxId}`, 15_000);
+      worker.child.kill('SIGTERM');
+      const { code } = await worker.exited;
+
+      const out = worker.output();
+      expect(code).toBe(0);
+      expect(out).toContain(`handler finished ${outboxId}`);
+      expect(out.indexOf(`handler finished ${outboxId}`)).toBeLessThan(out.indexOf('worker stopped'));
+      expect(out).toContain('worker received SIGTERM');
+      expect(out.indexOf('worker received SIGTERM')).toBeLessThan(out.indexOf(`handler finished ${outboxId}`));
+      const [row] = await h.rows();
+      expect(row).toMatchObject({ id: outboxId, status: 'done' });
+    } finally {
+      await h.close();
+    }
   });
 });

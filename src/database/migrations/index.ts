@@ -11,6 +11,7 @@ import * as createProfileInterests from './20261001000002-create-profile-interes
 import * as createDatingPreferences from './20261001000003-create-dating-preferences';
 import * as seedInterests from './20261001000004-seed-interests';
 import * as convertCollation from './20261002000001-convert-collation-utf8mb4-0900';
+import * as createOutboxEvents from './20261003000001-create-outbox-events';
 
 export interface MigrationDefinition {
   name: string;
@@ -30,4 +31,5 @@ export const migrations: MigrationDefinition[] = [
   { name: '20261001000003-create-dating-preferences', ...createDatingPreferences },
   { name: '20261001000004-seed-interests', ...seedInterests },
   { name: '20261002000001-convert-collation-utf8mb4-0900', ...convertCollation },
+  { name: '20261003000001-create-outbox-events', ...createOutboxEvents },
 ];

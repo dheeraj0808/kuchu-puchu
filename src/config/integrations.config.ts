@@ -28,3 +28,14 @@ export const fcmConfig = registerAs('fcm', () => {
     privateKey: (env.FCM_PRIVATE_KEY ?? '').replace(/\\n/g, '\n'),
   };
 });
+
+export interface AlertsConfig {
+  /** Unset outside production (validateEnv requires it there): alerts are then only logged. */
+  webhookUrl: string | undefined;
+  environment: string;
+}
+
+export const alertsConfig = registerAs('alerts', (): AlertsConfig => {
+  const env = getValidatedEnv();
+  return { webhookUrl: env.ALERT_WEBHOOK_URL, environment: env.NODE_ENV };
+});

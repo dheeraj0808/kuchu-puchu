@@ -1,41 +1,22 @@
-import {
-  type INestApplicationContext,
-  Injectable,
-  Logger as NestLogger,
-  Module,
-  type OnApplicationBootstrap,
-  type OnApplicationShutdown,
-} from '@nestjs/common';
+import { type INestApplicationContext, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
 
 import { runRole } from './bootstrap/run-role';
 import { AppRole } from './config/env.validation';
 import { CoreModule } from './core.module';
+import { EventsWorkerModule } from './events/events-worker.module';
+import { AlertsModule } from './infra/alerts/alerts.module';
 import { QueueConnectionModule } from './infra/queue/queue-connection.module';
+import { JobsModule } from './jobs/jobs.module';
 
 /**
- * Keeps the worker process alive until shutdown. There is no queue consumer
- * yet (queues, the outbox relay and repeatable jobs arrive with M03), so
- * nothing else would hold the event loop open.
+ * Worker process (guide §3.1): background jobs, no HTTP server. Runs the
+ * outbox relay and handlers and every periodic job. The BullMQ workers keep
+ * the process alive; on SIGTERM they stop taking jobs and let in-flight ones
+ * finish before the connections close.
  */
-@Injectable()
-class WorkerLifecycle implements OnApplicationBootstrap, OnApplicationShutdown {
-  private readonly logger = new NestLogger('Worker');
-  private keepAlive?: NodeJS.Timeout;
-
-  onApplicationBootstrap(): void {
-    this.keepAlive = setInterval(() => undefined, 60 * 60 * 1000);
-    this.logger.log('No queues registered yet (M03)');
-  }
-
-  onApplicationShutdown(): void {
-    if (this.keepAlive) clearInterval(this.keepAlive);
-  }
-}
-
-/** Worker process (guide §3.1): background jobs, no HTTP server. */
-@Module({ imports: [CoreModule, QueueConnectionModule], providers: [WorkerLifecycle] })
+@Module({ imports: [CoreModule, QueueConnectionModule, AlertsModule, JobsModule, EventsWorkerModule] })
 export class WorkerModule {}
 
 export async function startWorker(): Promise<INestApplicationContext> {

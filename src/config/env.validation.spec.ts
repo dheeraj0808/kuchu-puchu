@@ -4,6 +4,8 @@ import appConfig from './app.config';
 import databaseConfig from './database.config';
 import { resolveAppRole, validateEnv } from './env.validation';
 import otpConfig from './otp.config';
+import outboxConfig, { OUTBOX_CLEANUP_BATCH_SIZE } from './outbox.config';
+import { alertsConfig } from './integrations.config';
 
 const secret = (c: string) => c.repeat(40);
 
@@ -23,6 +25,7 @@ const prod = {
   CORS_ORIGINS: 'https://app.example.com',
   TRUST_PROXY: '1',
   REDIS_URL: 'rediss://cache.internal:6379',
+  ALERT_WEBHOOK_URL: 'https://hooks.example.com/services/T000/B000/XXXX',
 };
 
 describe('validateEnv', () => {
@@ -76,6 +79,39 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...base, REDIS_URL: undefined })).not.toThrow();
   });
 
+  it('requires an https ALERT_WEBHOOK_URL in production only', () => {
+    expect(() => validateEnv({ ...prod, ALERT_WEBHOOK_URL: undefined })).toThrow(/ALERT_WEBHOOK_URL must be set/);
+    expect(() => validateEnv({ ...base, ALERT_WEBHOOK_URL: undefined })).not.toThrow();
+    expect(() => validateEnv({ ...base, ALERT_WEBHOOK_URL: 'http://hooks.example.com/x' })).toThrow(/ALERT_WEBHOOK_URL/);
+  });
+
+  it('defaults the OUTBOX_* variables to the M03 values', () => {
+    const env = validateEnv(base);
+    expect(env.OUTBOX_RELAY_INTERVAL_MS).toBe(1000);
+    expect(env.OUTBOX_RELAY_TIME_BUDGET_MS).toBe(800);
+    expect(env.OUTBOX_BATCH_SIZE).toBe(200);
+    expect(env.OUTBOX_MAX_ATTEMPTS).toBe(8);
+    expect(env.OUTBOX_BACKOFF_BASE_MS).toBe(1000);
+    expect(env.OUTBOX_ENQUEUE_TIMEOUT_MS).toBe(1000);
+    expect(env.OUTBOX_CLEANUP_AGE_DAYS).toBe(7);
+    expect(env.OUTBOX_CLEANUP_CRON).toBe('30 21 * * *');
+    expect(env.OUTBOX_PAYLOAD_MAX_BYTES).toBe(16_384);
+    expect(env.OUTBOX_COMPLETED_JOB_RETENTION_HOURS).toBe(24);
+    expect(env.OUTBOX_FAILED_JOB_RETENTION_DAYS).toBe(14);
+  });
+
+  it('lets OUTBOX_* be overridden and rejects out-of-range values', () => {
+    const env = validateEnv({ ...base, OUTBOX_BATCH_SIZE: '50', OUTBOX_CLEANUP_CRON: '0 22 * * *' });
+    expect(env.OUTBOX_BATCH_SIZE).toBe(50);
+    expect(env.OUTBOX_CLEANUP_CRON).toBe('0 22 * * *');
+    expect(() => validateEnv({ ...base, OUTBOX_BATCH_SIZE: '0' })).toThrow(/OUTBOX_BATCH_SIZE/);
+    expect(() => validateEnv({ ...base, OUTBOX_MAX_ATTEMPTS: '300' })).toThrow(/OUTBOX_MAX_ATTEMPTS/);
+    expect(() => validateEnv({ ...base, OUTBOX_CLEANUP_CRON: 'daily' })).toThrow(/OUTBOX_CLEANUP_CRON/);
+    expect(() => validateEnv({ ...base, OUTBOX_RELAY_TIME_BUDGET_MS: '1000' })).toThrow(
+      /OUTBOX_RELAY_TIME_BUDGET_MS must be below/,
+    );
+  });
+
   it('runs as api when APP_ROLE is not set, and accepts only api | realtime | worker', () => {
     expect(validateEnv(base).APP_ROLE).toBeUndefined();
     expect(resolveAppRole(validateEnv(base))).toBe('api');
@@ -123,6 +159,27 @@ describe('config loaders', () => {
       if (before === undefined) delete process.env.DB_USER;
       else process.env.DB_USER = before;
     }
+  });
+
+  it('build the typed outbox and alerts config', () => {
+    validateEnv({ ...base, OUTBOX_FAILED_JOB_RETENTION_DAYS: '2' });
+    expect(outboxConfig()).toEqual({
+      relayIntervalMs: 1000,
+      relayTimeBudgetMs: 800,
+      batchSize: 200,
+      maxAttempts: 8,
+      backoffBaseMs: 1000,
+      enqueueTimeoutMs: 1000,
+      cleanupAgeDays: 7,
+      cleanupCron: '30 21 * * *',
+      cleanupBatchSize: OUTBOX_CLEANUP_BATCH_SIZE,
+      payloadMaxBytes: 16_384,
+      completedJobRetentionSeconds: 24 * 3600,
+      failedJobRetentionSeconds: 2 * 86_400,
+    });
+    expect(OUTBOX_CLEANUP_BATCH_SIZE).toBe(5000);
+    expect(alertsConfig()).toEqual({ webhookUrl: undefined, environment: 'development' });
+    validateEnv(base);
   });
 
   it('turn Swagger off by default in production and force OTP echo off', () => {

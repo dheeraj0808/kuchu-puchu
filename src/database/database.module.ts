@@ -7,6 +7,7 @@ import { Sequelize } from 'sequelize-typescript';
 import type { DatabaseConfig } from '../config/database.config';
 import { OtpVerification } from '../auth/models/otp-verification.model';
 import { Session } from '../auth/models/session.model';
+import { OutboxEvent } from '../events/models/outbox-event.model';
 import { SecurityEvent } from '../security/models/security-event.model';
 import { Interest } from '../interests/models/interest.model';
 import { ProfileInterest } from '../interests/models/profile-interest.model';
@@ -44,7 +45,17 @@ export class DatabaseServerCheck implements OnModuleInit {
           password: db.password,
           database: db.database,
           timezone: '+00:00',
-          models: [User, Session, OtpVerification, SecurityEvent, Profile, Interest, ProfileInterest, DatingPreference],
+          models: [
+            User,
+            Session,
+            OtpVerification,
+            SecurityEvent,
+            Profile,
+            Interest,
+            ProfileInterest,
+            DatingPreference,
+            OutboxEvent,
+          ],
           autoLoadModels: true,
           synchronize: false,
           retryAttempts: 5,
