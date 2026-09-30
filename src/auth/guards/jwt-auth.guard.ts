@@ -8,6 +8,8 @@ import type { AuthenticatedUser } from '../interfaces/authenticated-user.interfa
 export class JwtAuthGuard extends AuthGuard('jwt') {
   // Generic failure — never reveal whether the token was expired, revoked, forged, etc.
   override handleRequest<TUser = AuthenticatedUser>(err: unknown, user: unknown): TUser {
+    // A valid session whose account is suspended, banned or deactivated.
+    if (err instanceof AppException && err.code === ErrorCode.AccountRestricted) throw err;
     if (err || !user) {
       throw new AppException(ErrorCode.Unauthorized);
     }

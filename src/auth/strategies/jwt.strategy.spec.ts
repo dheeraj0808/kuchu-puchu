@@ -1,54 +1,69 @@
 import 'reflect-metadata';
 
+import { randomUUID } from 'node:crypto';
+
 import { UnauthorizedException } from '@nestjs/common';
 
-import { UserRole } from '../../users/models/user.model';
-import type { SessionService } from '../services/session.service';
-import { fakeSession, fakeUser } from '../testing/fakes';
+import { ErrorCode } from '../../common/exceptions/app.exception';
+import { UserRole, UserStatus } from '../../users/models/user.model';
+import type { SessionState, SessionStateService } from '../session-state/session-state.service';
 import { createTestConfig } from '../testing/test-config';
 import { JwtStrategy } from './jwt.strategy';
 
 describe('JwtStrategy.validate', () => {
-  const findActiveSession = jest.fn();
-  const strategy = new JwtStrategy(createTestConfig(), { findActiveSession } as unknown as SessionService);
-  const user = fakeUser();
-  const session = fakeSession({ userId: user.id, user });
-  const payload = { sub: user.id, sid: session.id, role: UserRole.User };
+  const get = jest.fn();
+  const strategy = new JwtStrategy(createTestConfig(), { get } as unknown as SessionStateService);
+  const userId = randomUUID();
+  const sid = randomUUID();
+  const payload = { sub: userId, sid, role: UserRole.User };
+  const state = (overrides: Partial<SessionState> = {}): SessionState => ({
+    userId,
+    role: UserRole.Moderator,
+    status: UserStatus.Active,
+    deleted: false,
+    revoked: false,
+    expiresAt: Date.now() + 60_000,
+    ...overrides,
+  });
 
-  beforeEach(() => findActiveSession.mockReset());
+  beforeEach(() => get.mockReset());
 
-  it('returns the principal for an active session', async () => {
-    findActiveSession.mockResolvedValue(session);
-    await expect(strategy.validate(payload)).resolves.toEqual({
-      userId: user.id,
-      sessionId: session.id,
-      role: UserRole.User,
-    });
+  it('returns the principal with the role from the session state, not the token', async () => {
+    get.mockResolvedValue(state());
+    await expect(strategy.validate(payload)).resolves.toEqual({ userId, sessionId: sid, role: UserRole.Moderator });
+    expect(get).toHaveBeenCalledWith(sid);
   });
 
   it.each([
     ['null', null],
-    ['missing sid', { sub: user.id, role: 'user' }],
-    ['non-uuid sub', { sub: 'admin', sid: session.id, role: 'user' }],
-    ['unknown role', { sub: user.id, sid: session.id, role: 'superuser' }],
+    ['missing sid', { sub: userId, role: 'user' }],
+    ['non-uuid sub', { sub: 'admin', sid, role: 'user' }],
+    ['unknown role', { sub: userId, sid, role: 'superuser' }],
   ])('rejects malformed payload (%s)', async (_l, p) => {
     await expect(strategy.validate(p)).rejects.toBeInstanceOf(UnauthorizedException);
-    expect(findActiveSession).not.toHaveBeenCalled();
+    expect(get).not.toHaveBeenCalled();
   });
 
-  it('rejects revoked/expired (inactive) session', async () => {
-    findActiveSession.mockResolvedValue(null);
+  it.each([
+    ['unknown session', null],
+    ['revoked', state({ revoked: true })],
+    ['expired', state({ expiresAt: Date.now() - 1 })],
+    ['another user', state({ userId: randomUUID() })],
+  ])('401 for %s', async (_l, s) => {
+    get.mockResolvedValue(s);
     await expect(strategy.validate(payload)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it('rejects when session belongs to another user', async () => {
-    findActiveSession.mockResolvedValue(fakeSession({ id: session.id, user: fakeUser() }));
-    await expect(strategy.validate(payload)).rejects.toBeInstanceOf(UnauthorizedException);
-  });
+  it.each([UserStatus.Suspended, UserStatus.Banned, UserStatus.Deactivated])(
+    '403 ACCOUNT_RESTRICTED for a %s user with a valid session',
+    async (status) => {
+      get.mockResolvedValue(state({ status }));
+      await expect(strategy.validate(payload)).rejects.toMatchObject({ code: ErrorCode.AccountRestricted });
+    },
+  );
 
-  it('rejects banned users', async () => {
-    const banned = fakeUser({ id: user.id, isBanned: true });
-    findActiveSession.mockResolvedValue(fakeSession({ id: session.id, userId: user.id, user: banned }));
-    await expect(strategy.validate(payload)).rejects.toBeInstanceOf(UnauthorizedException);
+  it('403 ACCOUNT_RESTRICTED for a deleted user', async () => {
+    get.mockResolvedValue(state({ deleted: true }));
+    await expect(strategy.validate(payload)).rejects.toMatchObject({ code: ErrorCode.AccountRestricted });
   });
 });

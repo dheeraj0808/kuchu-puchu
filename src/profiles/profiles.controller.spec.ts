@@ -8,10 +8,10 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
-import { SessionService } from '../auth/services/session.service';
+import { SessionStateService } from '../auth/session-state/session-state.service';
 import { TokenService } from '../auth/services/token.service';
 import { JwtStrategy } from '../auth/strategies/jwt.strategy';
-import { fakeSession, fakeUser } from '../auth/testing/fakes';
+import { fakeSession, fakeUser, fakeSessionState } from '../auth/testing/fakes';
 import { createTestConfig } from '../auth/testing/test-config';
 import { AllExceptionsFilter } from '../common/filters/all-exceptions.filter';
 import { createValidationPipe } from '../common/pipes/validation.pipe';
@@ -40,8 +40,8 @@ describe('ProfilesController (HTTP, real JwtStrategy)', () => {
       providers: [
         { provide: ConfigService, useValue: createTestConfig() },
         {
-          provide: SessionService,
-          useValue: { findActiveSession: (sid: string) => Promise.resolve(sid === session.id ? session : null) },
+          provide: SessionStateService,
+          useValue: fakeSessionState((sid: string) => Promise.resolve(sid === session.id ? session : null)),
         },
         { provide: UsersService, useValue: { findById: (id: string) => Promise.resolve(id === user.id ? user : null) } },
         { provide: ProfilesService, useValue: profilesMock },

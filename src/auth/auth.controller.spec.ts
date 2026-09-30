@@ -14,6 +14,7 @@ import { UserResponseDto } from '../users/dto/user-response.dto';
 import type { User } from '../users/models/user.model';
 import { UsersService } from '../users/users.service';
 import { AuthController } from './auth.controller';
+import { SessionStateService } from './session-state/session-state.service';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { Session } from './models/session.model';
@@ -22,7 +23,7 @@ import type { OtpService } from './services/otp.service';
 import { SessionService } from './services/session.service';
 import { TokenService } from './services/token.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
-import { fakeSecurityEvents, fakeSession, fakeUser } from './testing/fakes';
+import { fakeSecurityEvents, fakeSession, fakeUser, fakeSessionState } from './testing/fakes';
 import { createTestConfig, TEST_JWT_CONFIG } from './testing/test-config';
 
 describe('AuthController (GET /auth/me, POST /auth/logout-all) with real JwtStrategy', () => {
@@ -48,6 +49,7 @@ describe('AuthController (GET /auth/me, POST /auth/logout-all) with real JwtStra
       controllers: [AuthController],
       providers: [
         { provide: ConfigService, useValue: config },
+        { provide: SessionStateService, useValue: fakeSessionState((sid: string) => sessionsMock.findActiveSession(sid)) },
         { provide: SessionService, useValue: sessionsMock },
         { provide: UsersService, useValue: usersMock },
         TokenService,

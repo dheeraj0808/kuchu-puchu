@@ -1,5 +1,5 @@
 import { DynamicModule, Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { createObserveModule } from '@nestjs/observe';
 import { ThrottlerModule } from '@nestjs/throttler';
 import type { Redis } from 'ioredis';
@@ -18,6 +18,7 @@ import { SecurityModule } from './security/security.module';
 
 import { AccountModule } from './account/account.module';
 import { AuthModule } from './auth/auth.module';
+import { LastActiveInterceptor } from './users/last-active.interceptor';
 import { UsersModule } from './users/users.module';
 import { InterestsModule } from './interests/interests.module';
 import { PreferencesModule } from './preferences/preferences.module';
@@ -81,6 +82,9 @@ function observeImports(): DynamicModule[] {
     BlocksModule,
     AdminModule,
   ],
-  providers: [{ provide: APP_GUARD, useClass: AppThrottlerGuard }],
+  providers: [
+    { provide: APP_GUARD, useClass: AppThrottlerGuard },
+    { provide: APP_INTERCEPTOR, useClass: LastActiveInterceptor },
+  ],
 })
 export class AppModule {}

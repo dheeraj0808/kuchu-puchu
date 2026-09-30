@@ -18,11 +18,15 @@ describe('auth DTOs', () => {
     expect(dto.identifier).toBe('jane@example.com');
   });
 
-  it('normalizes phone and enforces E.164', () => {
+  it('normalizes phone to E.164 (default region IN) and rejects invalid numbers', () => {
     const good = check(RequestOtpDto, { identifierType: 'phone', identifier: '+91 98765-43210' });
     expect(good.ok).toBe(true);
     expect(good.dto.identifier).toBe('+919876543210');
-    expect(check(RequestOtpDto, { identifierType: 'phone', identifier: '9876543210' }).ok).toBe(false);
+    const local = check(RequestOtpDto, { identifierType: 'phone', identifier: '98765 43210' });
+    expect(local.ok).toBe(true);
+    expect(local.dto.identifier).toBe('+919876543210');
+    expect(check(RequestOtpDto, { identifierType: 'phone', identifier: '12345' }).ok).toBe(false);
+    expect(check(RequestOtpDto, { identifierType: 'phone', identifier: '+910000000000' }).ok).toBe(false);
     expect(check(RequestOtpDto, { identifierType: 'phone', identifier: 'jane@example.com' }).ok).toBe(false);
   });
 

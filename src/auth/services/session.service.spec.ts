@@ -1,5 +1,7 @@
 import 'reflect-metadata';
 
+import { UserStatus } from '../../users/models/user.model';
+
 import { HttpStatus } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 
@@ -29,8 +31,9 @@ function setup() {
     create: jest.fn((attrs: Record<string, unknown>) => Promise.resolve(fakeSession(attrs as Partial<Session>))),
   };
   const events = fakeSecurityEvents();
-  const service = new SessionService(model as unknown as typeof Session, tokens, events);
-  return { service, model, tokens, events };
+  const sessionState = { invalidate: jest.fn().mockResolvedValue(undefined), invalidateUser: jest.fn().mockResolvedValue(undefined) };
+  const service = new SessionService(model as unknown as typeof Session, tokens, events, sessionState as never);
+  return { service, model, tokens, events, sessionState };
 }
 
 /** Creates a session through the service and returns a matching stored row. */
@@ -144,7 +147,7 @@ describe('SessionService', () => {
     it('revokes and returns 403 for restricted users', async () => {
       const s = setup();
       const { stored, refreshToken } = await loggedIn(s);
-      stored.user = fakeUser({ id: stored.userId, isBanned: true });
+      stored.user = fakeUser({ id: stored.userId, status: UserStatus.Banned });
       await expectAppError(s.service.rotate(refreshToken, ctx), ErrorCode.AccountRestricted, HttpStatus.FORBIDDEN);
       expect(s.model.update).toHaveBeenCalledWith(
         expect.objectContaining({ revokedReason: SessionRevokeReason.AccountRestricted }),

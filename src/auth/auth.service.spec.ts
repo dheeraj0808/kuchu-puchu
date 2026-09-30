@@ -1,6 +1,8 @@
 import type { ProfilesService } from '../profiles/profiles.service';
 import 'reflect-metadata';
 
+import { UserStatus } from '../users/models/user.model';
+
 import { HttpStatus } from '@nestjs/common';
 import type { Sequelize } from 'sequelize-typescript';
 
@@ -73,7 +75,7 @@ describe('AuthService', () => {
       const r2 = await known.service.requestOtp({ identifierType: IdentifierType.Email, identifier: EMAIL }, ctx);
 
       const banned = setup();
-      banned.users.findByIdentifier.mockResolvedValue(fakeUser({ isBanned: true }));
+      banned.users.findByIdentifier.mockResolvedValue(fakeUser({ status: UserStatus.Banned }));
       const r3 = await banned.service.requestOtp({ identifierType: IdentifierType.Email, identifier: EMAIL }, ctx);
 
       expect(r1).toEqual({ message: OTP_REQUEST_MESSAGE, expiresInSeconds: 300, resendAfterSeconds: 60 });
@@ -137,7 +139,7 @@ describe('AuthService', () => {
       const user = fakeUser();
       const session = fakeSession({ userId: user.id });
       s.otp.verify.mockResolvedValue({ ok: true, record: { id: 'r1' } });
-      s.users.createVerified.mockResolvedValue(user);
+      s.users.createVerified.mockResolvedValue({ user, created: true });
       s.sessions.create.mockResolvedValue({ session, refreshToken: 'rt' });
 
       const res = await s.service.verifyOtp(dto, ctx);
@@ -153,7 +155,7 @@ describe('AuthService', () => {
     it('blocks restricted accounts with 403 and no session', async () => {
       const s = setup();
       s.otp.verify.mockResolvedValue({ ok: true, record: { id: 'r1' } });
-      s.users.findByIdentifier.mockResolvedValue(fakeUser({ isActive: false }));
+      s.users.findByIdentifier.mockResolvedValue(fakeUser({ status: UserStatus.Deactivated }));
       await expect(s.service.verifyOtp(dto, ctx)).rejects.toMatchObject({ code: ErrorCode.AccountRestricted });
       expect(s.sessions.create).not.toHaveBeenCalled();
     });

@@ -14,15 +14,15 @@ export function fakeUser(overrides: Partial<User> = {}): User {
     status: UserStatus.Active,
     role: UserRole.User,
     isActive: true,
-    isBanned: false,
+    deletedAt: null,
     lastLoginAt: null,
     createdAt: new Date('2026-01-01T00:00:00Z'),
     ...overrides,
   };
   return {
     ...base,
-    canAuthenticate(this: Pick<User, 'isActive' | 'isBanned' | 'status'>): boolean {
-      return this.isActive && !this.isBanned && this.status === UserStatus.Active;
+    canAuthenticate(this: Pick<User, 'status' | 'deletedAt'>): boolean {
+      return this.status === UserStatus.Active && !this.deletedAt;
     },
     save: jest.fn().mockResolvedValue(undefined),
   } as unknown as User;
@@ -55,5 +55,23 @@ export function fakeSession(overrides: Partial<Session> = {}): Session {
 export function fakeSecurityEvents(): SecurityEventsService & { record: jest.Mock } {
   return { record: jest.fn().mockResolvedValue(undefined) } as unknown as SecurityEventsService & {
     record: jest.Mock;
+  };
+}
+
+/** A SessionStateService stand-in that derives the cached state from a session lookup. */
+export function fakeSessionState(find: (sessionId: string) => Promise<Session | null>): { get: jest.Mock } {
+  return {
+    get: jest.fn(async (sessionId: string) => {
+      const s = await find(sessionId);
+      if (!s || !s.user) return null;
+      return {
+        userId: s.userId,
+        role: s.user.role,
+        status: s.user.status,
+        deleted: Boolean(s.user.deletedAt),
+        revoked: Boolean(s.revokedAt),
+        expiresAt: new Date(s.expiresAt).getTime(),
+      };
+    }),
   };
 }

@@ -12,6 +12,7 @@ import { PreferencesService } from '../preferences/preferences.service';
 import { ProfilesService } from '../profiles/profiles.service';
 import { SecurityEventType } from '../security/models/security-event.model';
 import { SecurityEventsService } from '../security/security-events.service';
+import { UserStatus } from '../users/models/user.model';
 import { UsersService } from '../users/users.service';
 
 @Injectable()
@@ -44,7 +45,7 @@ export class AccountService {
         user.email ? this.otp.hashIdentifier(IdentifierType.Email, user.email) : null,
         user.phone ? this.otp.hashIdentifier(IdentifierType.Phone, user.phone) : null,
       ].filter((h): h is string => h !== null);
-      const wasBanned = user.isBanned;
+      const wasBanned = user.status === UserStatus.Banned;
 
       const revokedSessions = await this.sessions.revokeAllForUser(
         user.id,

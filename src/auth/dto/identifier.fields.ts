@@ -11,7 +11,7 @@ import {
 } from 'class-validator';
 
 import { IdentifierType } from '../models/otp-verification.model';
-import { E164_REGEX, normalizeEmail, normalizePhone } from '../utils/identifier.util';
+import { normalizeEmail, normalizePhone, toE164 } from '../utils/identifier.util';
 
 function normalizeIdentifierTransform({ value, obj }: TransformFnParams): unknown {
   if (typeof value !== 'string') return value;
@@ -36,7 +36,8 @@ function IsIdentifierForType(): PropertyDecorator {
             return value.length <= 254 && isEmail(value);
           }
           if (type === IdentifierType.Phone) {
-            return E164_REGEX.test(value);
+            // The transform already produced E.164 for every valid number.
+            return toE164(value) === value;
           }
           // identifierType itself is invalid; reported by @IsEnum.
           return true;
@@ -44,7 +45,7 @@ function IsIdentifierForType(): PropertyDecorator {
         defaultMessage(args: ValidationArguments): string {
           const type: unknown = (args.object as Record<string, unknown>).identifierType;
           return type === IdentifierType.Phone
-            ? 'identifier must be a phone number in E.164 format (e.g. +919876543210)'
+            ? 'identifier must be a valid phone number (e.g. +919876543210 or 9876543210)'
             : 'identifier must be a valid email address';
         },
       },
@@ -62,7 +63,7 @@ export function IdentifierTypeField(): PropertyDecorator {
 export function IdentifierField(): PropertyDecorator {
   return applyDecorators(
     ApiProperty({
-      description: 'Email address, or phone number in E.164 format (e.g. +919876543210)',
+      description: 'Email address, or phone number (E.164, or an Indian number without the country code)',
       example: 'jane@example.com',
       maxLength: 254,
     }),

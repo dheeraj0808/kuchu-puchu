@@ -7,7 +7,8 @@ import type { JwtConfig } from '../../config/jwt.config';
 import { UserRole } from '../../users/models/user.model';
 import type { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 import type { JwtPayload } from '../interfaces/jwt-payload.interface';
-import { SessionService } from '../services/session.service';
+import { AppException, ErrorCode } from '../../common/exceptions/app.exception';
+import { SessionStateService, stateCanAuthenticate } from '../session-state/session-state.service';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ROLES: readonly string[] = Object.values(UserRole);
@@ -29,7 +30,7 @@ function isJwtPayload(value: unknown): value is JwtPayload {
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(
     config: ConfigService,
-    private readonly sessions: SessionService,
+    private readonly sessionState: SessionStateService,
   ) {
     const jwt = config.getOrThrow<JwtConfig>('jwt');
     super({
@@ -42,20 +43,24 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
     });
   }
 
-  /** Every request re-checks the session so revocation takes effect immediately. */
+  /**
+   * Every request re-checks the session (cached 5 min, deleted on every
+   * change) so revocation and restriction take effect on the next request.
+   * Revoked, expired or unknown → 401; a user who can't authenticate → 403
+   * ACCOUNT_RESTRICTED.
+   */
   async validate(payload: unknown): Promise<AuthenticatedUser> {
     if (!isJwtPayload(payload)) {
       throw new UnauthorizedException();
     }
-    const session = await this.sessions.findActiveSession(payload.sid);
-    if (!session || session.userId !== payload.sub) {
+    const state = await this.sessionState.get(payload.sid);
+    if (!state || state.revoked || state.expiresAt <= Date.now() || state.userId !== payload.sub) {
       throw new UnauthorizedException();
     }
-    const user = session.user;
-    if (!user || user.id !== payload.sub || !user.canAuthenticate()) {
-      throw new UnauthorizedException();
+    if (!stateCanAuthenticate(state)) {
+      throw new AppException(ErrorCode.AccountRestricted);
     }
-    // Role is taken from the DB, not the token, so demotions apply immediately.
-    return { userId: user.id, sessionId: session.id, role: user.role };
+    // Role comes from the session state (DB), never from the token, so demotions apply at once.
+    return { userId: state.userId, sessionId: payload.sid, role: state.role };
   }
 }

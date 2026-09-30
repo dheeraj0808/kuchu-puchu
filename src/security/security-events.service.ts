@@ -8,6 +8,8 @@ import { SecurityEvent, SecurityEventType } from './models/security-event.model'
 export interface RecordSecurityEventInput {
   eventType: SecurityEventType;
   userId?: string | null;
+  /** Who did it (moderator/admin), when not the subject. */
+  actorUserId?: string | null;
   context?: RequestContext;
   metadata?: Record<string, unknown>;
   transaction?: Transaction;
@@ -34,7 +36,9 @@ export class SecurityEventsService {
           userId: input.userId ?? null,
           ipAddress: input.context?.ipAddress ?? null,
           userAgent: input.context?.userAgent ?? null,
-          metadata: input.metadata ?? null,
+          metadata: input.actorUserId
+            ? { ...input.metadata, actorUserId: input.actorUserId }
+            : (input.metadata ?? null),
         },
         { transaction: input.transaction },
       );

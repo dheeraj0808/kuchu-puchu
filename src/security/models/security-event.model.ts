@@ -32,6 +32,7 @@ export enum SecurityEventType {
   ProfileCreated = 'profile.created',
   ProfileDeleted = 'profile.deleted',
   AccountDeleted = 'account.deleted',
+  UserStatusChanged = 'user.status_changed',
 }
 
 @Table({

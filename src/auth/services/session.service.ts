@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
-import { Op, type Transaction } from 'sequelize';
+import type { Transaction } from 'sequelize';
 
 import { AppException, ErrorCode } from '../../common/exceptions/app.exception';
 import { timingSafeEqualHex } from '../../common/utils/hmac';
@@ -10,6 +10,7 @@ import { SecurityEventType } from '../../security/models/security-event.model';
 import { SecurityEventsService } from '../../security/security-events.service';
 import { User } from '../../users/models/user.model';
 import { Session } from '../models/session.model';
+import { SessionStateService } from '../session-state/session-state.service';
 import { TokenService } from './token.service';
 
 export interface DeviceInfo {
@@ -35,6 +36,8 @@ export enum SessionRevokeReason {
   RefreshTokenReuse = 'refresh_token_reuse',
   AccountRestricted = 'account_restricted',
   AccountDeleted = 'account_deleted',
+  /** Revoked because the account was suspended, banned or deactivated (M04). */
+  Restricted = 'restricted',
 }
 
 @Injectable()
@@ -43,6 +46,7 @@ export class SessionService {
     @InjectModel(Session) private readonly sessionModel: typeof Session,
     private readonly tokens: TokenService,
     private readonly securityEvents: SecurityEventsService,
+    private readonly sessionState: SessionStateService,
   ) {}
 
   private now(): Date {
@@ -62,6 +66,7 @@ export class SessionService {
         { revokedAt: now, revokedReason: SessionRevokeReason.ReplacedByNewLogin },
         { where: { userId, deviceId, revokedAt: null }, transaction },
       );
+      await this.sessionState.invalidateUser(userId, transaction);
     }
 
     const id = uuidv7();
@@ -182,7 +187,9 @@ export class SessionService {
       { revokedAt: this.now(), revokedReason: SessionRevokeReason.Logout },
       { where: { id: session.id, refreshTokenHash: presentedHash, revokedAt: null } },
     );
-    return affected > 0 ? session.userId : null;
+    if (affected === 0) return null;
+    await this.sessionState.invalidate([session.id]);
+    return session.userId;
   }
 
   async revokeAllForUser(
@@ -194,6 +201,7 @@ export class SessionService {
       { revokedAt: this.now(), revokedReason: reason },
       { where: { userId, revokedAt: null }, transaction },
     );
+    await this.sessionState.invalidateUser(userId, transaction);
     return affected;
   }
 
@@ -202,15 +210,10 @@ export class SessionService {
       { revokedAt: this.now(), revokedReason: reason },
       { where: { id: sessionId, revokedAt: null } },
     );
+    await this.sessionState.invalidate([sessionId]);
     return affected > 0;
   }
 
-  async findActiveSession(sessionId: string): Promise<Session | null> {
-    return this.sessionModel.findOne({
-      where: { id: sessionId, revokedAt: null, expiresAt: { [Op.gt]: this.now() } },
-      include: [{ model: User, required: false }],
-    });
-  }
 
   private async recordInvalid(userId: string | null, ctx: RequestContext, reason: string): Promise<void> {
     await this.securityEvents.record({

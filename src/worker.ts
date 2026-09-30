@@ -9,6 +9,8 @@ import { EventsWorkerModule } from './events/events-worker.module';
 import { AlertsModule } from './infra/alerts/alerts.module';
 import { QueueConnectionModule } from './infra/queue/queue-connection.module';
 import { JobsModule } from './jobs/jobs.module';
+import { SecurityModule } from './security/security.module';
+import { UsersWorkerModule } from './users/revoke-sessions.handler';
 
 /**
  * Worker process (guide §3.1): background jobs, no HTTP server. Runs the
@@ -16,7 +18,17 @@ import { JobsModule } from './jobs/jobs.module';
  * the process alive; on SIGTERM they stop taking jobs and let in-flight ones
  * finish before the connections close.
  */
-@Module({ imports: [CoreModule, QueueConnectionModule, AlertsModule, JobsModule, EventsWorkerModule] })
+@Module({
+  imports: [
+    CoreModule,
+    QueueConnectionModule,
+    AlertsModule,
+    JobsModule,
+    EventsWorkerModule,
+    SecurityModule,
+    UsersWorkerModule,
+  ],
+})
 export class WorkerModule {}
 
 export async function startWorker(): Promise<INestApplicationContext> {
