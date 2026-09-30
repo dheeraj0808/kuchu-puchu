@@ -11,6 +11,7 @@ import {
   UpdatedAt,
 } from 'sequelize-typescript';
 
+import { uuidv7 } from '../../common/utils/uuid';
 import type { Gender } from '../../profiles/models/profile.model';
 import { User } from '../../users/models/user.model';
 
@@ -30,7 +31,7 @@ export enum RelationshipIntent {
 @Table({ tableName: 'dating_preferences', underscored: true, timestamps: true })
 export class DatingPreference extends Model {
   @PrimaryKey
-  @Default(DataType.UUIDV4)
+  @Default(uuidv7)
   @Column(DataType.UUID)
   override id: string;
 

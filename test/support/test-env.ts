@@ -1,7 +1,7 @@
 /**
  * Test environment guard. Tests must never touch dev data, so they always use
  * a dedicated MySQL database whose name ends in "_test" (default
- * kuchu_puchu_test). Values set here win over .env, which ConfigModule and
+ * kuchu_puchu_test) and a dedicated Redis (see test-redis.ts). Values set here win over .env, which ConfigModule and
  * migrate.ts load without overriding existing variables.
  */
 export const TEST_DB_NAME = process.env.TEST_DB_NAME ?? 'kuchu_puchu_test';
@@ -13,4 +13,7 @@ export function applyTestEnv(): void {
   process.env.NODE_ENV = 'test';
   process.env.DB_NAME = TEST_DB_NAME;
   process.env.LOG_LEVEL = process.env.TEST_LOG_LEVEL ?? 'silent';
+  // Tests talk to the app over loopback; trusting it lets a test simulate
+  // different client IPs with X-Forwarded-For.
+  process.env.TRUST_PROXY = 'loopback';
 }

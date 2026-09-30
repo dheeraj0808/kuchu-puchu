@@ -11,13 +11,14 @@ import {
   UpdatedAt,
 } from 'sequelize-typescript';
 
+import { uuidv7 } from '../../common/utils/uuid';
 import { Profile } from '../../profiles/models/profile.model';
 import { Interest } from './interest.model';
 
 @Table({ tableName: 'profile_interests', underscored: true, timestamps: true })
 export class ProfileInterest extends Model {
   @PrimaryKey
-  @Default(DataType.UUIDV4)
+  @Default(uuidv7)
   @Column(DataType.UUID)
   override id: string;
 

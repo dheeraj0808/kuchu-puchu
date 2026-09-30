@@ -4,7 +4,11 @@ import { resolve } from 'node:path';
 import { Sequelize, type Options, type QueryInterface } from 'sequelize';
 import { SequelizeStorage, Umzug } from 'umzug';
 
-import { migrations } from './migrations';
+import { type MigrationDefinition, migrations } from './migrations';
+import { type SeederDefinition, seeders } from './seeders';
+
+/** Reverting is for local development only. */
+const DOWN_ALLOWED_ENVS = new Set(['development', 'test']);
 
 const DB_NAME_PATTERN = /^[A-Za-z0-9_]+$/;
 
@@ -52,7 +56,7 @@ function buildSequelize(withDatabase: boolean): Sequelize {
     password: process.env.DB_PASSWORD ?? '',
     timezone: '+00:00',
     logging: false,
-    define: { charset: 'utf8mb4', collate: 'utf8mb4_unicode_ci' },
+    define: { charset: 'utf8mb4', collate: 'utf8mb4_0900_ai_ci' },
     dialectOptions: {
       charset: 'utf8mb4',
       ...(envBool('DB_SSL') ? { ssl: { rejectUnauthorized: true } } : {}),
@@ -67,7 +71,7 @@ async function createDatabase(): Promise<void> {
   const sequelize = buildSequelize(false);
   try {
     await sequelize.query(
-      `CREATE DATABASE IF NOT EXISTS \`${name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`,
+      `CREATE DATABASE IF NOT EXISTS \`${name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci`,
     );
     console.log(`Database "${name}" is ready`);
   } finally {
@@ -75,19 +79,23 @@ async function createDatabase(): Promise<void> {
   }
 }
 
-function buildUmzug(sequelize: Sequelize): Umzug<QueryInterface> {
+function buildUmzug(
+  sequelize: Sequelize,
+  steps: Array<MigrationDefinition | SeederDefinition>,
+  tableName: string,
+): Umzug<QueryInterface> {
   const log = (event: string) => (message: Record<string, unknown>) => {
     const name = typeof message.name === 'string' ? message.name : '';
     console.log(`${event}${name ? `: ${name}` : ''}`);
   };
   return new Umzug<QueryInterface>({
-    migrations: migrations.map((m) => ({
+    migrations: steps.map((m) => ({
       name: m.name,
       up: m.up,
       down: m.down,
     })),
     context: sequelize.getQueryInterface(),
-    storage: new SequelizeStorage({ sequelize, tableName: 'sequelize_meta' }),
+    storage: new SequelizeStorage({ sequelize, tableName }),
     logger: {
       info: (message) => {
         const event = typeof message.event === 'string' ? message.event : 'info';
@@ -104,7 +112,7 @@ async function runMigrations(command: string): Promise<void> {
   const sequelize = buildSequelize(true);
   try {
     await sequelize.authenticate();
-    const umzug = buildUmzug(sequelize);
+    const umzug = buildUmzug(sequelize, migrations, 'sequelize_meta');
     switch (command) {
       case 'up': {
         const applied = await umzug.up();
@@ -116,6 +124,12 @@ async function runMigrations(command: string): Promise<void> {
         break;
       }
       case 'down': {
+        const env = process.env.NODE_ENV ?? 'development';
+        if (!DOWN_ALLOWED_ENVS.has(env)) {
+          throw new Error(
+            `Refusing to revert migrations with NODE_ENV=${env}. Migrations are forward-only outside development.`,
+          );
+        }
         const reverted = await umzug.down();
         console.log(
           reverted.length
@@ -133,9 +147,17 @@ async function runMigrations(command: string): Promise<void> {
         for (const m of pending) console.log(`  [ ] ${m.name}`);
         break;
       }
+      case 'seed': {
+        const seeding = buildUmzug(sequelize, seeders, 'sequelize_seed_meta');
+        const applied = await seeding.up();
+        console.log(
+          applied.length ? `Applied ${applied.length} seeder(s)` : 'No pending seeders',
+        );
+        break;
+      }
       default:
         throw new Error(
-          `Unknown command "${command}". Use: up | down | status | db:create`,
+          `Unknown command "${command}". Use: up | down | status | seed | db:create`,
         );
     }
   } finally {

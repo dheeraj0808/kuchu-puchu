@@ -1,11 +1,10 @@
-import { randomUUID } from 'node:crypto';
-
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/sequelize';
 import { Op, type Transaction } from 'sequelize';
 
 import { AppException, ErrorCode } from '../../common/exceptions/app.exception';
 import type { RequestContext } from '../../common/utils/request-context';
+import { uuidv7 } from '../../common/utils/uuid';
 import { SecurityEventType } from '../../security/models/security-event.model';
 import { SecurityEventsService } from '../../security/security-events.service';
 import { User } from '../../users/models/user.model';
@@ -65,7 +64,7 @@ export class SessionService {
       );
     }
 
-    const id = randomUUID();
+    const id = uuidv7();
     const secret = this.tokens.generateRefreshSecret();
     const session = await this.sessionModel.create(
       {

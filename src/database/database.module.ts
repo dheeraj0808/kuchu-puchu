@@ -37,7 +37,7 @@ const sqlLogger = new Logger('Sequelize');
           define: {
             underscored: true,
             charset: 'utf8mb4',
-            collate: 'utf8mb4_unicode_ci',
+            collate: 'utf8mb4_0900_ai_ci',
           },
           dialectOptions: {
             charset: 'utf8mb4',

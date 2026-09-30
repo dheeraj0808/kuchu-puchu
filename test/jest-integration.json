@@ -1,12 +1,19 @@
 {
-  "moduleFileExtensions": ["js", "json", "ts"],
+  "moduleFileExtensions": [
+    "js",
+    "json",
+    "ts"
+  ],
   "rootDir": ".",
   "testEnvironment": "node",
-  "testRegex": ".e2e-spec.ts$",
+  "testRegex": ".int-spec.ts$",
   "transform": {
     "^.+\\.(t|j)s$": "ts-jest"
   },
   "globalSetup": "<rootDir>/support/global-setup.ts",
   "globalTeardown": "<rootDir>/support/global-teardown.ts",
-  "setupFiles": ["<rootDir>/support/setup-env.ts"]
+  "setupFiles": [
+    "<rootDir>/support/setup-env.ts"
+  ],
+  "testTimeout": 120000
 }

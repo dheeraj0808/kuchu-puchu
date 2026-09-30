@@ -3,6 +3,7 @@ import 'reflect-metadata';
 import { type ArgumentMetadata, BadRequestException } from '@nestjs/common';
 
 import { createValidationPipe } from '../common/pipes/validation.pipe';
+import { uuidv7 } from '../common/utils/uuid';
 import { INTEREST_IDS_HARD_CAP, UpdateProfileInterestsDto } from './dto/update-profile-interests.dto';
 
 const meta: ArgumentMetadata = { type: 'body', metatype: UpdateProfileInterestsDto };
@@ -24,6 +25,17 @@ describe('UpdateProfileInterestsDto validation', () => {
     const out = (await pipe.transform({ interestIds: [uuid(1), uuid(2)] }, meta)) as UpdateProfileInterestsDto;
     expect(out).toBeInstanceOf(UpdateProfileInterestsDto);
     expect(out.interestIds).toEqual([uuid(1), uuid(2)]);
+  });
+
+  it('accepts v7 ids (new rows) alongside v4 ids (seeded rows)', async () => {
+    const ids = [uuid(1), uuidv7()];
+    const out = (await pipe.transform({ interestIds: ids }, meta)) as UpdateProfileInterestsDto;
+    expect(out.interestIds).toEqual(ids);
+  });
+
+  it('rejects other UUID versions', async () => {
+    const v1 = '6f1c2d3e-4b5a-1c6d-8e7f-9a0b1c2d3e4f';
+    expect(await messages({ interestIds: [v1] })).toContain('each value in interestIds must be a UUID');
   });
 
   it('accepts an empty array', async () => {

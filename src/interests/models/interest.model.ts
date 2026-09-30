@@ -1,10 +1,12 @@
 import { Column, CreatedAt, DataType, Default, Model, PrimaryKey, Table, UpdatedAt } from 'sequelize-typescript';
 
+import { uuidv7 } from '../../common/utils/uuid';
+
 /** Global catalogue entry. Never deleted — deactivate with isActive=false instead. */
 @Table({ tableName: 'interests', underscored: true, timestamps: true })
 export class Interest extends Model {
   @PrimaryKey
-  @Default(DataType.UUIDV4)
+  @Default(uuidv7)
   @Column(DataType.UUID)
   override id: string;
 

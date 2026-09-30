@@ -13,6 +13,7 @@ import {
 } from 'sequelize-typescript';
 
 import { Session } from '../../auth/models/session.model';
+import { uuidv7 } from '../../common/utils/uuid';
 
 export enum UserStatus {
   Active = 'active',
@@ -37,7 +38,7 @@ export enum UserRole {
 })
 export class User extends Model {
   @PrimaryKey
-  @Default(DataType.UUIDV4)
+  @Default(uuidv7)
   @Column(DataType.UUID)
   override id: string;
 

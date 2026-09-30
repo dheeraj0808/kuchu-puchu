@@ -6,10 +6,21 @@ import {
   type QueryInterfaceCreateTableOptions,
 } from 'sequelize';
 
+/**
+ * Used by migrations that have already run; do not change. Their tables are
+ * converted by 20261002000001-convert-collation-utf8mb4-0900.
+ */
 export const TABLE_OPTIONS: QueryInterfaceCreateTableOptions = {
   engine: 'InnoDB',
   charset: 'utf8mb4',
   collate: 'utf8mb4_unicode_ci',
+};
+
+/** Guide §4.2 table options. Use this in every new migration. */
+export const TABLE_OPTIONS_0900: QueryInterfaceCreateTableOptions = {
+  engine: 'InnoDB',
+  charset: 'utf8mb4',
+  collate: 'utf8mb4_0900_ai_ci',
 };
 
 export const createdAtColumn = (): ModelAttributeColumnOptions => ({

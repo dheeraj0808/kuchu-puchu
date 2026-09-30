@@ -22,6 +22,7 @@ const prod = {
   NODE_ENV: 'production',
   CORS_ORIGINS: 'https://app.example.com',
   TRUST_PROXY: '1',
+  REDIS_URL: 'rediss://cache.internal:6379',
 };
 
 describe('validateEnv', () => {
@@ -68,6 +69,11 @@ describe('validateEnv', () => {
   it('requires TRUST_PROXY in production only', () => {
     expect(() => validateEnv({ ...prod, TRUST_PROXY: undefined })).toThrow(/TRUST_PROXY/);
     expect(() => validateEnv({ ...base, TRUST_PROXY: undefined })).not.toThrow();
+  });
+
+  it('requires REDIS_URL in production only', () => {
+    expect(() => validateEnv({ ...prod, REDIS_URL: undefined })).toThrow(/REDIS_URL/);
+    expect(() => validateEnv({ ...base, REDIS_URL: undefined })).not.toThrow();
   });
 
   it('rejects a REDIS_URL that is not a redis URL', () => {

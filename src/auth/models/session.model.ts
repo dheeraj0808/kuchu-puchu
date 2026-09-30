@@ -11,12 +11,13 @@ import {
   UpdatedAt,
 } from 'sequelize-typescript';
 
+import { uuidv7 } from '../../common/utils/uuid';
 import { User } from '../../users/models/user.model';
 
 @Table({ tableName: 'sessions', underscored: true, timestamps: true })
 export class Session extends Model {
   @PrimaryKey
-  @Default(DataType.UUIDV4)
+  @Default(uuidv7)
   @Column(DataType.UUID)
   override id: string;
 

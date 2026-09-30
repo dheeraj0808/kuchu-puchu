@@ -2,14 +2,17 @@ import { registerAs } from '@nestjs/config';
 
 import { getValidatedEnv } from './env.validation';
 
+export const DEFAULT_DEV_REDIS_URL = 'redis://localhost:6379';
+
 export interface RedisConfig {
-  url: string | undefined;
+  url: string;
   tls: boolean;
 }
 
 export const redisConfig = registerAs('redis', (): RedisConfig => {
   const env = getValidatedEnv();
-  return { url: env.REDIS_URL, tls: env.REDIS_TLS };
+  // validateEnv requires REDIS_URL in production, so the default only applies elsewhere.
+  return { url: env.REDIS_URL ?? DEFAULT_DEV_REDIS_URL, tls: env.REDIS_TLS };
 });
 
 // Placeholders for upcoming integrations. Not consumed yet.

@@ -12,6 +12,7 @@ import {
   UpdatedAt,
 } from 'sequelize-typescript';
 
+import { uuidv7 } from '../../common/utils/uuid';
 import { User } from '../../users/models/user.model';
 
 export enum Gender {
@@ -38,7 +39,7 @@ function decimalGetter(this: Model, key: string): number | null {
 @Table({ tableName: 'profiles', underscored: true, paranoid: true, timestamps: true })
 export class Profile extends Model {
   @PrimaryKey
-  @Default(DataType.UUIDV4)
+  @Default(uuidv7)
   @Column(DataType.UUID)
   override id: string;
 

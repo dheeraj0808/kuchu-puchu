@@ -3,9 +3,14 @@ import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { createObserveModule } from '@nestjs/observe';
 import { ThrottlerModule } from '@nestjs/throttler';
+import type { Redis } from 'ioredis';
 
 import { configLoaders, getValidatedEnv, validateEnv } from './config';
 import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
+import { RedisThrottlerStorage } from './common/throttling/redis-throttler.storage';
+import { IP_LIMIT, THROTTLER_IP, THROTTLER_USER, USER_LIMIT } from './common/throttling/throttling.constants';
+import { QueueConnectionModule } from './infra/queue/queue-connection.module';
+import { REDIS_CLIENT, RedisModule } from './infra/redis/redis.module';
 import { LoggerModule } from './common/logging/logger.module';
 import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
@@ -52,8 +57,18 @@ function observeImports(): DynamicModule[] {
 
     LoggerModule,
     DatabaseModule,
-    // TODO: switch to Redis-backed throttler storage for multi-instance deployments.
-    ThrottlerModule.forRoot([{ name: 'default', ttl: 60_000, limit: 100 }]),
+    RedisModule,
+    QueueConnectionModule,
+    ThrottlerModule.forRootAsync({
+      inject: [REDIS_CLIENT],
+      useFactory: (redis: Redis) => ({
+        throttlers: [
+          { name: THROTTLER_IP, ...IP_LIMIT },
+          { name: THROTTLER_USER, ...USER_LIMIT },
+        ],
+        storage: new RedisThrottlerStorage(redis),
+      }),
+    }),
     SecurityModule,
     HealthModule,
 

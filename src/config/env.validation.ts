@@ -93,7 +93,7 @@ export class EnvironmentVariables {
   @Transform(toBool)
   DB_SSL: boolean = false;
 
-  // Redis
+  // Redis. Required in production (checked below); defaults to a local server otherwise.
   @IsOptional()
   @Matches(/^rediss?:\/\/\S+$/, { message: 'REDIS_URL must be a redis:// or rediss:// URL' })
   REDIS_URL?: string;
@@ -204,6 +204,9 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
   }
   if (isProd && !validated.TRUST_PROXY) {
     throw new Error('TRUST_PROXY must be set in production');
+  }
+  if (isProd && !validated.REDIS_URL) {
+    throw new Error('REDIS_URL must be set in production');
   }
   if (validated.PREFERENCES_MIN_DISTANCE_KM > validated.PREFERENCES_MAX_DISTANCE_KM) {
     throw new Error('PREFERENCES_MIN_DISTANCE_KM must not exceed PREFERENCES_MAX_DISTANCE_KM');

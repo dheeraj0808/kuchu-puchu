@@ -14,6 +14,7 @@ export class UpdateProfileInterestsDto {
   @IsArray()
   @ArrayMaxSize(INTEREST_IDS_HARD_CAP)
   @ArrayUnique({ message: 'interestIds must not contain duplicates' })
-  @IsUUID('4', { each: true, message: 'each value in interestIds must be a UUID' })
+  // Seeded interests have v4 ids; new rows get v7 (common/utils/uuid.ts).
+  @IsUUID(['4', '7'], { each: true, message: 'each value in interestIds must be a UUID' })
   interestIds: string[];
 }
