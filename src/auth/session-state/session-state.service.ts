@@ -114,6 +114,20 @@ export class SessionStateService {
     return state;
   }
 
+  /**
+   * True at most once per session per cache TTL, so a restricted user
+   * retrying in a loop produces one audit event, not one per request.
+   * Redis down → true (auditing wins over deduplication).
+   */
+  async takeRestrictionAuditSlot(sessionId: string): Promise<boolean> {
+    try {
+      const set = await this.redis.set(redisKey('restricted-audit', sessionId), '1', 'EX', SESSION_CACHE_TTL_SECONDS, 'NX');
+      return set === 'OK';
+    } catch {
+      return true;
+    }
+  }
+
   /** Deletes cached state now, or after the transaction commits when one is given. */
   async invalidate(
     sessionIds: string[],

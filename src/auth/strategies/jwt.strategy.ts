@@ -7,6 +7,11 @@ import type { JwtConfig } from '../../config/jwt.config';
 import { UserRole } from '../../users/models/user.model';
 import type { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 import type { JwtPayload } from '../interfaces/jwt-payload.interface';
+import type { Request } from 'express';
+
+import { extractRequestContext } from '../../common/decorators/client-context.decorator';
+import { SecurityEventType } from '../../security/models/security-event.model';
+import { SecurityEventsService } from '../../security/security-events.service';
 import { AppException, ErrorCode } from '../../common/exceptions/app.exception';
 import { SessionStateService, stateCanAuthenticate } from '../session-state/session-state.service';
 
@@ -31,6 +36,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   constructor(
     config: ConfigService,
     private readonly sessionState: SessionStateService,
+    private readonly securityEvents: SecurityEventsService,
   ) {
     const jwt = config.getOrThrow<JwtConfig>('jwt');
     super({
@@ -40,6 +46,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       issuer: jwt.issuer,
       audience: jwt.audience,
       algorithms: ['HS256'],
+      passReqToCallback: true,
     });
   }
 
@@ -49,7 +56,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
    * Revoked, expired or unknown → 401; a user who can't authenticate → 403
    * ACCOUNT_RESTRICTED.
    */
-  async validate(payload: unknown): Promise<AuthenticatedUser> {
+  async validate(req: Request, payload: unknown): Promise<AuthenticatedUser> {
     if (!isJwtPayload(payload)) {
       throw new UnauthorizedException();
     }
@@ -58,6 +65,14 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       throw new UnauthorizedException();
     }
     if (!stateCanAuthenticate(state)) {
+      if (await this.sessionState.takeRestrictionAuditSlot(payload.sid)) {
+        await this.securityEvents.record({
+          eventType: SecurityEventType.AccountRestricted,
+          userId: state.userId,
+          context: extractRequestContext(req),
+          metadata: { sessionId: payload.sid, status: state.deleted ? 'deleted' : state.status },
+        });
+      }
       throw new AppException(ErrorCode.AccountRestricted);
     }
     // Role comes from the session state (DB), never from the token, so demotions apply at once.

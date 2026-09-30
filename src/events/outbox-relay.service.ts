@@ -55,6 +55,9 @@ export const RELAY_STOP_TIMEOUT_MS = 1_500;
 
 const INVALID_ROW_ERROR = 'OutboxInvalidRow';
 
+/** ioredis states in which a command cannot be sent now. */
+const DOWN_STATUSES = new Set(['reconnecting', 'close', 'end']);
+
 /** Floor for the budget-capped enqueue wait: a healthy addBulk takes a few ms. */
 const MIN_ENQUEUE_TIMEOUT_MS = 100;
 
@@ -264,8 +267,9 @@ export class OutboxRelayService implements OnModuleDestroy {
     let abandoned = false;
     const send = (async (): Promise<void> => {
       const connection = this.queue.opts.connection as { status?: string };
-      // 'wait' is a lazy connection that has not been used yet; waitUntilReady connects it.
-      if (connection.status !== undefined && connection.status !== 'ready' && connection.status !== 'wait') {
+      // Fail fast only when the connection is known to be down; one that is still
+      // connecting (or lazy, 'wait') gets up to the enqueue timeout.
+      if (connection.status !== undefined && DOWN_STATUSES.has(connection.status)) {
         throw new OutboxRedisUnavailableError('Redis connection not ready');
       }
       await this.queue.waitUntilReady();

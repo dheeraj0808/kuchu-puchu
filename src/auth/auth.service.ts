@@ -44,7 +44,6 @@ async function retryOnDeadlock<T>(run: () => Promise<T>, attempts = 3): Promise<
 
 export const OTP_REQUEST_MESSAGE =
   'If the details are valid, a verification code has been sent.';
-const HASH_PREFIX_LENGTH = 12;
 
 @Injectable()
 export class AuthService {
@@ -65,9 +64,7 @@ export class AuthService {
   ): Promise<RequestOtpResponse> {
     const type = dto.identifierType;
     const identifier = normalizeIdentifier(type, dto.identifier);
-    const identifierHashPrefix = this.otp
-      .hashIdentifier(type, identifier)
-      .slice(0, HASH_PREFIX_LENGTH);
+    const identifierHashPrefix = this.securityEvents.hashIdentifier(type, identifier);
     const metadata = { identifierType: type, identifierHashPrefix };
     const response = this.otpRequestResponse();
 
@@ -128,9 +125,7 @@ export class AuthService {
   ): Promise<AuthTokensResponse> {
     const type = dto.identifierType;
     const identifier = normalizeIdentifier(type, dto.identifier);
-    const identifierHashPrefix = this.otp
-      .hashIdentifier(type, identifier)
-      .slice(0, HASH_PREFIX_LENGTH);
+    const identifierHashPrefix = this.securityEvents.hashIdentifier(type, identifier);
 
     // Outside the login transaction so attempt counters always persist.
     const result = await this.otp.verify(type, identifier, dto.otp);

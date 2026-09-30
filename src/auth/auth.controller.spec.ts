@@ -9,7 +9,7 @@ import type { Sequelize } from 'sequelize-typescript';
 import request from 'supertest';
 
 import type { ProfilesService } from '../profiles/profiles.service';
-import type { SecurityEventsService } from '../security/security-events.service';
+import { SecurityEventsService } from '../security/security-events.service';
 import { UserResponseDto } from '../users/dto/user-response.dto';
 import type { User } from '../users/models/user.model';
 import { UsersService } from '../users/users.service';
@@ -50,6 +50,7 @@ describe('AuthController (GET /auth/me, POST /auth/logout-all) with real JwtStra
       providers: [
         { provide: ConfigService, useValue: config },
         { provide: SessionStateService, useValue: fakeSessionState((sid: string) => sessionsMock.findActiveSession(sid)) },
+        { provide: SecurityEventsService, useValue: fakeSecurityEvents() },
         { provide: SessionService, useValue: sessionsMock },
         { provide: UsersService, useValue: usersMock },
         TokenService,

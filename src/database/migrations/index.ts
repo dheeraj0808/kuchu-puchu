@@ -13,6 +13,7 @@ import * as seedInterests from './20261001000004-seed-interests';
 import * as convertCollation from './20261002000001-convert-collation-utf8mb4-0900';
 import * as createOutboxEvents from './20261003000001-create-outbox-events';
 import * as usersStatusAndActivity from './20261004000001-users-status-and-activity';
+import * as securityEventsBigintActor from './20261005000001-security-events-bigint-actor';
 
 export interface MigrationDefinition {
   name: string;
@@ -34,4 +35,5 @@ export const migrations: MigrationDefinition[] = [
   { name: '20261002000001-convert-collation-utf8mb4-0900', ...convertCollation },
   { name: '20261003000001-create-outbox-events', ...createOutboxEvents },
   { name: '20261004000001-users-status-and-activity', ...usersStatusAndActivity },
+  { name: '20261005000001-security-events-bigint-actor', ...securityEventsBigintActor },
 ];

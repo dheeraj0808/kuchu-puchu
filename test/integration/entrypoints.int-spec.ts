@@ -89,7 +89,7 @@ describe('entry points (APP_ROLE)', () => {
     const worker = start('src/main.ts', { APP_ROLE: 'worker' });
     running.push(worker);
     await waitFor(worker, 'worker ready');
-    expect(worker.output()).toContain('Job schedulers registered: outbox.relay, outbox.cleanup');
+    expect(worker.output()).toContain('Job schedulers registered: outbox.relay, outbox.cleanup, security.retention');
     await stopGracefully(worker, 'worker');
   });
 
@@ -116,7 +116,7 @@ describe('entry points (APP_ROLE)', () => {
       const worker = start('test/support/outbox-worker-fixture.ts', { APP_ROLE: 'worker', FIXTURE_HANDLER_MS: '1500' });
       running.push(worker);
       await waitFor(worker, 'worker ready');
-      expect(worker.output()).toContain('Job schedulers registered: outbox.relay, outbox.cleanup');
+      expect(worker.output()).toContain('Job schedulers registered: outbox.relay, outbox.cleanup, security.retention');
 
       const [outboxId] = await h.publishMany(1, randomUUID());
       await waitFor(worker, `handler started ${outboxId}`, 15_000);

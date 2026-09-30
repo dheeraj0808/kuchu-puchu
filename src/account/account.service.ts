@@ -40,10 +40,10 @@ export class AccountService {
         throw new AppException(ErrorCode.Unauthorized);
       }
 
-      // Keyed hashes (never raw identifiers) so abuse/ban-evasion checks remain possible.
-      const identifierHashes = [
-        user.email ? this.otp.hashIdentifier(IdentifierType.Email, user.email) : null,
-        user.phone ? this.otp.hashIdentifier(IdentifierType.Phone, user.phone) : null,
+      // 12-char keyed-hash prefixes (never raw identifiers) so abuse/ban-evasion checks remain possible.
+      const identifierHashPrefixes = [
+        user.email ? this.securityEvents.hashIdentifier(IdentifierType.Email, user.email) : null,
+        user.phone ? this.securityEvents.hashIdentifier(IdentifierType.Phone, user.phone) : null,
       ].filter((h): h is string => h !== null);
       const wasBanned = user.status === UserStatus.Banned;
 
@@ -60,7 +60,7 @@ export class AccountService {
         eventType: SecurityEventType.AccountDeleted,
         userId: user.id,
         context: ctx,
-        metadata: { revokedSessions, preferencesDeleted, profileDeactivated, wasBanned, identifierHashes },
+        metadata: { revokedSessions, preferencesDeleted, profileDeactivated, wasBanned, identifierHashPrefixes },
         transaction,
       });
     });

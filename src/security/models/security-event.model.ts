@@ -1,16 +1,15 @@
 import {
+  AutoIncrement,
   BelongsTo,
   Column,
   CreatedAt,
   DataType,
-  Default,
   ForeignKey,
   Model,
   PrimaryKey,
   Table,
 } from 'sequelize-typescript';
 
-import { uuidv7 } from '../../common/utils/uuid';
 import { User } from '../../users/models/user.model';
 
 export enum SecurityEventType {
@@ -33,6 +32,8 @@ export enum SecurityEventType {
   ProfileDeleted = 'profile.deleted',
   AccountDeleted = 'account.deleted',
   UserStatusChanged = 'user.status_changed',
+  /** A valid session was refused because the account is suspended, banned or deactivated. */
+  AccountRestricted = 'auth.account_restricted',
 }
 
 @Table({
@@ -42,9 +43,10 @@ export enum SecurityEventType {
   updatedAt: false,
 })
 export class SecurityEvent extends Model {
+  /** BIGINT UNSIGNED (guide §4.2 append-only log); a string so ids beyond 2^53 stay exact. */
   @PrimaryKey
-  @Default(uuidv7)
-  @Column(DataType.UUID)
+  @AutoIncrement
+  @Column(DataType.BIGINT.UNSIGNED)
   override id: string;
 
   @ForeignKey(() => User)
@@ -54,16 +56,20 @@ export class SecurityEvent extends Model {
   @BelongsTo(() => User, { onDelete: 'SET NULL' })
   user?: User;
 
+  /** Who did it (moderator/admin for admin.* events), when not the subject. */
+  @Column(DataType.CHAR(36))
+  actorUserId: string | null;
+
   @Column({ type: DataType.STRING(64), allowNull: false })
   eventType: SecurityEventType;
 
   @Column(DataType.STRING(45))
   ipAddress: string | null;
 
-  @Column(DataType.STRING(512))
+  @Column(DataType.STRING(255))
   userAgent: string | null;
 
-  /** Must never contain OTPs, tokens or raw PII. */
+  /** Never raw PII, OTPs or tokens; identifiers only as a 12-char HMAC prefix (hashIdentifier). */
   @Column(DataType.JSON)
   metadata: Record<string, unknown> | null;
 

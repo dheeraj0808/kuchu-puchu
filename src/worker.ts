@@ -9,6 +9,7 @@ import { EventsWorkerModule } from './events/events-worker.module';
 import { AlertsModule } from './infra/alerts/alerts.module';
 import { QueueConnectionModule } from './infra/queue/queue-connection.module';
 import { JobsModule } from './jobs/jobs.module';
+import { SecurityWorkerModule } from './security/security-retention.job';
 import { SecurityModule } from './security/security.module';
 import { UsersWorkerModule } from './users/revoke-sessions.handler';
 
@@ -26,6 +27,7 @@ import { UsersWorkerModule } from './users/revoke-sessions.handler';
     JobsModule,
     EventsWorkerModule,
     SecurityModule,
+    SecurityWorkerModule,
     UsersWorkerModule,
   ],
 })

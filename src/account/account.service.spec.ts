@@ -66,6 +66,10 @@ function setup(user = fakeUser({ email: 'jane@example.com', phone: '+91987654321
   return { service, user, users, sessions, profiles, preferences, otp, events, tx, order, sequelize };
 }
 
+function event0(events: { record: jest.Mock }): unknown {
+  return (events.record.mock.calls[0] as unknown[])[0];
+}
+
 describe('AccountService.deleteAccount', () => {
   const principal = (id: string) => ({ userId: id, sessionId: 's', role: UserRole.User });
 
@@ -86,8 +90,11 @@ describe('AccountService.deleteAccount', () => {
     const { service, user, events, otp, tx } = setup();
     await service.deleteAccount(principal(user.id), ctx);
 
-    expect(otp.hashIdentifier).toHaveBeenCalledWith(IdentifierType.Email, 'jane@example.com');
-    expect(otp.hashIdentifier).toHaveBeenCalledWith(IdentifierType.Phone, '+919876543210');
+    void otp;
+    expect((event0(events) as { metadata: { identifierHashPrefixes: string[] } }).metadata.identifierHashPrefixes).toEqual([
+      'h:email:jane',
+      'h:phone:+919',
+    ]);
     const [[event]] = events.record.mock.calls as [[{ eventType: string; metadata: unknown; transaction: unknown }]];
     expect(event.eventType).toBe(SecurityEventType.AccountDeleted);
     expect(event.transaction).toBe(tx);

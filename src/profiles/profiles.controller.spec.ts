@@ -1,5 +1,7 @@
 import 'reflect-metadata';
 
+import { SecurityEventsService } from '../security/security-events.service';
+
 import { type INestApplication, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
@@ -39,6 +41,10 @@ describe('ProfilesController (HTTP, real JwtStrategy)', () => {
       controllers: [ProfilesController],
       providers: [
         { provide: ConfigService, useValue: createTestConfig() },
+        {
+          provide: SecurityEventsService,
+          useValue: { record: jest.fn().mockResolvedValue(undefined) },
+        },
         {
           provide: SessionStateService,
           useValue: fakeSessionState((sid: string) => Promise.resolve(sid === session.id ? session : null)),

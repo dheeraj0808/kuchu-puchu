@@ -53,14 +53,20 @@ export function fakeSession(overrides: Partial<Session> = {}): Session {
 }
 
 export function fakeSecurityEvents(): SecurityEventsService & { record: jest.Mock } {
-  return { record: jest.fn().mockResolvedValue(undefined) } as unknown as SecurityEventsService & {
+  return {
+    record: jest.fn().mockResolvedValue(undefined),
+    hashIdentifier: (type: string, value: string) => `h:${type}:${value}`.slice(0, 12),
+  } as unknown as SecurityEventsService & {
     record: jest.Mock;
   };
 }
 
 /** A SessionStateService stand-in that derives the cached state from a session lookup. */
-export function fakeSessionState(find: (sessionId: string) => Promise<Session | null>): { get: jest.Mock } {
+export function fakeSessionState(
+  find: (sessionId: string) => Promise<Session | null>,
+): { get: jest.Mock; takeRestrictionAuditSlot: jest.Mock } {
   return {
+    takeRestrictionAuditSlot: jest.fn().mockResolvedValue(true),
     get: jest.fn(async (sessionId: string) => {
       const s = await find(sessionId);
       if (!s || !s.user) return null;

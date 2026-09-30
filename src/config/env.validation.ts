@@ -253,6 +253,21 @@ export class EnvironmentVariables {
   @Max(90)
   OUTBOX_FAILED_JOB_RETENTION_DAYS: number = 14;
 
+  // Security-events retention (M05; not in Appendix D)
+  @IsInt()
+  @Min(30)
+  @Max(3650)
+  SECURITY_EVENTS_RETENTION_DAYS: number = 365;
+
+  @IsInt()
+  @Min(30)
+  @Max(3650)
+  SECURITY_EVENTS_ADMIN_RETENTION_DAYS: number = 1095;
+
+  /** 21:45 UTC is 03:15 IST. */
+  @Matches(/^\S+( \S+){4}$/, { message: 'SECURITY_EVENTS_RETENTION_CRON must be a 5-field cron pattern' })
+  SECURITY_EVENTS_RETENTION_CRON: string = '45 21 * * *';
+
   // Monitoring. Sentry is only enabled when SENTRY_DSN is set.
   @IsOptional()
   @Matches(/^https:\/\/\S+$/, { message: 'SENTRY_DSN must be an https:// URL' })
@@ -301,6 +316,9 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
   }
   if (validated.OUTBOX_RELAY_TIME_BUDGET_MS >= validated.OUTBOX_RELAY_INTERVAL_MS) {
     throw new Error('OUTBOX_RELAY_TIME_BUDGET_MS must be below OUTBOX_RELAY_INTERVAL_MS');
+  }
+  if (validated.SECURITY_EVENTS_ADMIN_RETENTION_DAYS < validated.SECURITY_EVENTS_RETENTION_DAYS) {
+    throw new Error('SECURITY_EVENTS_ADMIN_RETENTION_DAYS must not be below SECURITY_EVENTS_RETENTION_DAYS');
   }
   if (validated.PREFERENCES_MIN_DISTANCE_KM > validated.PREFERENCES_MAX_DISTANCE_KM) {
     throw new Error('PREFERENCES_MIN_DISTANCE_KM must not exceed PREFERENCES_MAX_DISTANCE_KM');
