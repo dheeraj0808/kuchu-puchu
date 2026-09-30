@@ -2,152 +2,162 @@
 
 | | |
 |---|---|
-| Date | 2026-09-30 |
+| Date | 2026-09-30 (audit) · 2026-09-30 (re-checked after Part C, Done-when verified) |
 | Spec | `backend/docs/Kuchu-Puchu-Backend-Developer-Guide.pdf` v1.0: §8 M01 build list and "Done when", plus the §4 conventions and §5 security rules that M01 implements. Appendix C (error codes) and D (env vars) are used where M01 refers to them. |
-| Scope | M01 only. Rules that belong to later modules are not assessed here. No code was changed. |
-| Status key | **done**: matches the spec · **partial**: exists but differs from the spec or is incomplete · **missing**: not in the code |
+| Scope | M01 only. Rules that belong to later modules are not assessed here. |
+| Status key | **Before**: the original audit · **Now**: [x] done in the code · [ ] not done · **PENDING**: done in the code, but the "Done when" check can't be run here |
 
-Paths are relative to `backend/`.
+Paths are relative to `backend/`. Each "Now" row was re-checked against the code at `feat(M01): guards, utilities, entry points and CI`, not taken from the earlier session.
 
 ## Summary
 
-| Area | Done | Partial | Missing |
+| Area | Items | Done now | Not done |
 |---|---|---|---|
-| 1. Bootstrap | 5 | 1 | 2 |
-| 2. Config | 2 | 3 | 1 |
-| 3. Database | 1 | 3 | 0 |
-| 4. Redis | 0 | 0 | 3 |
-| 5. Errors | 1 | 3 | 0 |
-| 6. Responses | 0 | 1 | 1 |
-| 7. Logging | 3 | 1 | 0 |
-| 8. Guards & decorators | 2 | 1 | 3 |
-| 9. Rate limiting | 1 | 0 | 2 |
-| 10. Utilities | 0 | 2 | 3 |
-| 11. Docs & tooling | 3 | 0 | 3 |
-| 12. "Done when" | 1 | 1 | 2 |
-| **Total (55)** | **19** | **16** | **20** |
+| 1. Bootstrap | 8 | 8 | 0 |
+| 2. Config | 6 | 6 | 0 |
+| 3. Database | 4 + note | 4 | 0 |
+| 4. Redis | 3 | 3 | 0 |
+| 5. Errors | 4 | 4 | 0 |
+| 6. Responses | 2 | 2 | 0 |
+| 7. Logging | 4 | 4 | 0 |
+| 8. Guards & decorators | 6 | 6 | 0 |
+| 9. Rate limiting | 3 | 3 | 0 |
+| 10. Utilities | 5 | 5 | 0 |
+| 11. Docs & tooling | 6 | 5 | 1 (Dockerfile) |
+| 12. "Done when" | 4 | 2 verified | 2 PENDING |
 
-The main gaps: there is no Redis anywhere, the global prefix is `/api` instead of `/api/v1`, `realtime.ts` and `worker.ts` don't exist, three of the four guards are missing, and there is no Docker setup or CI.
+Still open: no Dockerfile (11.2), CI and docker-compose not yet proven by a run (12.3, 12.4), and the boot-error defect found while verifying 12.1 (see below).
 
 ---
 
 ## 1. Bootstrap
 
-| # | Item | Status | Where | Notes |
-|---|---|---|---|---|
-| 1.1 | `main.ts` API entry | **done** | `src/main.ts` | |
-| 1.2 | `realtime.ts` entry | **missing** | — | No Socket.IO entry file. `@nestjs/websockets` and `socket.io` are not in `package.json`. |
-| 1.3 | `worker.ts` entry | **missing** | — | No worker entry file. `APP_ROLE` is not defined. |
-| 1.4 | helmet + compression | **done** | `src/main.ts:46-47` | |
-| 1.5 | CORS allowlist | **done** | `src/main.ts:30-34, 50-68` | Uses `CORS_ORIGINS`, which is required in production (`src/config/env.validation.ts:188`). `allowedHeaders` does not include `X-App-Version` or `X-Platform` (§4.1 client headers). |
-| 1.6 | Global prefix `/api/v1` | **partial** | `src/main.ts:70` | Set to `'api'`, so routes are `/api/...`. Versioning is not enabled. |
-| 1.7 | Body limit 100 kb | **done** | `src/main.ts:48` | JSON limited to 100 kb. No multipart routes exist yet. |
-| 1.8 | Graceful shutdown on SIGTERM | **done** | `src/main.ts:76` | `enableShutdownHooks()`. No custom drain logic, which isn't needed until Redis and queues exist. |
+| # | Item | Before | Now | Where | Notes |
+|---|---|---|---|---|---|
+| 1.1 | `main.ts` API entry | done | [x] | `src/main.ts` | Picks the role from `APP_ROLE` (default `api`). |
+| 1.2 | `realtime.ts` entry | missing | [x] | `src/realtime.ts` | HTTP shell + `/api/v1/health` only; Socket.IO arrives with M19. |
+| 1.3 | `worker.ts` entry | missing | [x] | `src/worker.ts`, `src/bootstrap/run-role.ts` | No HTTP server; queues arrive with M03. `APP_ROLE` validated in `src/config/env.validation.ts`. |
+| 1.4 | helmet + compression | done | [x] | `src/app.setup.ts:53-54` | |
+| 1.5 | CORS allowlist | done | [x] | `src/app.setup.ts:60` | `allowedHeaders` now includes `X-App-Version`, `X-Platform`, `X-Device-Id`. |
+| 1.6 | Global prefix `/api/v1` | partial | [x] | `src/common/constants.ts`, `src/app.setup.ts:82` | |
+| 1.7 | Body limit 100 kb | done | [x] | `src/app.setup.ts:55-57` | JSON and urlencoded; 413 `PAYLOAD_TOO_LARGE`. |
+| 1.8 | Graceful shutdown on SIGTERM | done | [x] | `src/bootstrap/run-role.ts` | SIGTERM/SIGINT → `app.close()` (HTTP, DB, Redis) → exit 0; exit 1 after 10 s. Replaces `enableShutdownHooks()`. |
 
 ## 2. Config
 
-| # | Item | Status | Where | Notes |
-|---|---|---|---|---|
-| 2.1 | `@nestjs/config` with typed `registerAs` loaders | **done** | `src/config/*.config.ts`, `src/config/index.ts`, `src/app.module.ts:44-50` | Loaders: app, database, jwt, otp, profile, redis, aws, firebase. |
-| 2.2 | Boot fails fast on a missing or invalid variable | **done** | `src/config/env.validation.ts:166-195`, spec in `env.validation.spec.ts` | Errors list variable names only, never values. |
-| 2.3 | Secrets ≥ 32 characters and different from each other (S2) | **partial** | `src/config/env.validation.ts:85-108, 191` | Minimum length is enforced for all three secrets. Only access ≠ refresh is checked. `OTP_HASH_SECRET` can equal either JWT secret. |
-| 2.4 | `TRUST_PROXY` required in production | **missing** | `src/config/env.validation.ts:41-43` | Optional in every environment. |
-| 2.5 | Variable names match Appendix D | **partial** | `src/config/env.validation.ts`, `.env.example` | Differences: `DB_USERNAME`/`DB_DATABASE` (spec `DB_USER`/`DB_NAME`), `REDIS_HOST/PORT/PASSWORD` (spec `REDIS_URL`, `REDIS_TLS`), `JWT_ACCESS_EXPIRES_IN` (spec `JWT_ACCESS_TTL`), `OTP_MAX_REQUESTS_PER_HOUR` (spec `OTP_MAX_PER_HOUR`), `AWS_S3_BUCKET`/`FIREBASE_*` (spec `S3_BUCKET_*`/`FCM_*`). Missing from spec: `APP_ROLE`, `SENTRY_DSN`, `ALERT_WEBHOOK_URL`, `DB_REPLICA_HOST`. |
-| 2.6 | Loaders read validated values | **partial** | `src/config/env.helpers.ts` | Loaders re-read `process.env` with their own fallbacks, so validation and loaders can drift. For example, `envInt` silently falls back when a value isn't a number. Validation still runs first, so boot does fail on bad input. |
+| # | Item | Before | Now | Where | Notes |
+|---|---|---|---|---|---|
+| 2.1 | `@nestjs/config` with typed `registerAs` loaders | done | [x] | `src/config/*.config.ts`, `src/core.module.ts` | |
+| 2.2 | Boot fails fast on a missing or invalid variable | done | [x] | `src/config/env.validation.ts:212` | Errors list variable names only, never values. See the defect under 12.1 for the message shown when `.env` is used. |
+| 2.3 | Secrets ≥ 32 characters and different from each other (S2) | partial | [x] | `src/config/env.validation.ts:35, 246` | All three pairs of `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `OTP_HASH_SECRET` must differ. |
+| 2.4 | `TRUST_PROXY` required in production | missing | [x] | `src/config/env.validation.ts:232` | |
+| 2.5 | Variable names match Appendix D | partial | [x] | `src/config/env.validation.ts`, `.env.example` | Every variable in use has its Appendix D name. Not defined yet because nothing reads them: `DB_REPLICA_HOST`, `ALERT_WEBHOOK_URL`, and the M06+ groups. |
+| 2.6 | Loaders read validated values | partial | [x] | `src/config/*.config.ts` | Every loader reads `getValidatedEnv()`; `env.helpers.ts` is gone. |
 
 ## 3. Database
 
-| # | Item | Status | Where | Notes |
-|---|---|---|---|---|
-| 3.1 | Sequelize module, `synchronize: false` | **done** | `src/database/database.module.ts:19-54` | UTC timezone, `underscored: true`, bind parameters never logged. |
-| 3.2 | Connection pool min 2, max 20 | **partial** | `src/database/database.module.ts:36`, `src/config/database.config.ts:24` | Pool is `min: 0` and `max: DB_POOL_MAX`, which defaults to 10. |
-| 3.3 | Umzug runner via `npm run migrate` | **partial** | `src/database/migrate.ts`, `package.json:22-26` | The runner works (up, down, status, db:create), but the scripts are `migration:up` / `migration:prod`. There is no `migrate` script. |
-| 3.4 | Seeders for catalogue data | **partial** | `src/database/migrations/20261001000004-seed-interests.ts`, `src/interests/interests.seed.ts` | Interests are seeded through a migration. There is no `database/seeders/` folder and no seed command. Prompts are not seeded (they are an M08 table). |
-| — | Charset/collation (§4.2) | *note* | `src/database/database.module.ts:40`, `src/database/migrations/helpers.ts:12`, `migrate.ts:70` | Uses `utf8mb4_unicode_ci`. The spec requires `utf8mb4_0900_ai_ci`. |
+| # | Item | Before | Now | Where | Notes |
+|---|---|---|---|---|---|
+| 3.1 | Sequelize module, `synchronize: false` | done | [x] | `src/database/database.module.ts:49` | |
+| 3.2 | Connection pool min 2, max 20 | partial | [x] | `src/database/database.module.ts:52`, `src/config/database.config.ts:6` | `DB_POOL_MIN = 2`; `DB_POOL_MAX` defaults to 20, minimum 2. |
+| 3.3 | Umzug runner via `npm run migrate` | partial | [x] | `src/database/migrate.ts`, `package.json` (`migrate`, `migrate:down`, `migrate:status`, `migrate:prod`, `db:create`) | |
+| 3.4 | Seeders for catalogue data | partial | [x] | `src/database/seeders/index.ts`, `npm run seed` | Runner and `sequelize_seed_meta` tracking exist; the list is empty for now. Interests stay seeded by migration `20261001000004`; prompts are M08. |
+| — | Charset/collation (§4.2) | note | [x] | `src/database/database.module.ts:56`, `src/database/migrate.ts:76`, migration `20261002000001` | `utf8mb4_0900_ai_ci`; UUID columns `utf8mb4_bin`. |
 
 ## 4. Redis
 
-| # | Item | Status | Where | Notes |
-|---|---|---|---|---|
-| 4.1 | Shared ioredis client module | **missing** | — | `ioredis` is not a dependency. `redisConfig` in `src/config/integrations.config.ts:6` is a placeholder and nothing uses it. |
-| 4.2 | BullMQ connection | **missing** | — | `bullmq` is not a dependency. |
-| 4.3 | Key naming `kp:<area>:<id>` | **missing** | — | There are no Redis keys. |
+| # | Item | Before | Now | Where | Notes |
+|---|---|---|---|---|---|
+| 4.1 | Shared ioredis client module | missing | [x] | `src/infra/redis/redis.module.ts` | Global `REDIS_CLIENT`; errors logged by name only. |
+| 4.2 | BullMQ connection | missing | [x] | `src/infra/queue/queue-connection.module.ts` | Lazy; `maxRetriesPerRequest: null`; prefix `kp:queue`. |
+| 4.3 | Key naming `kp:<area>:<id>` | missing | [x] | `src/infra/redis/redis-keys.ts` | `redisKey()`; `test/integration/throttler.int-spec.ts` asserts the prefix. |
 
 ## 5. Errors
 
-| # | Item | Status | Where | Notes |
-|---|---|---|---|---|
-| 5.1 | `ErrorCode` enum | **partial** | `src/common/exceptions/app.exception.ts:3-22` | Has the M01 codes (`VALIDATION_ERROR`, `UNAUTHORIZED`, `FORBIDDEN`, `TOO_MANY_REQUESTS`, `INTERNAL_ERROR`). Missing `PROVIDER_UNAVAILABLE`. Also has codes that aren't in Appendix C: `INVALID_REQUEST`, `NOT_FOUND`, `INVALID_REFRESH_TOKEN`, `INVALID_INTERESTS`, `PREFERENCES_ALREADY_EXIST`, `PREFERENCES_NOT_FOUND`. |
-| 5.2 | `AppException(ErrorCode.X, details?)` | **partial** | `src/common/exceptions/app.exception.ts:28-37` | The signature is `(code, message, status, details?)`, so every caller passes the HTTP status and message by hand. There is no code → status map. The spec's form `AppException(ErrorCode.X, details?)` (§4.4) is not supported. |
-| 5.3 | Global `AllExceptionsFilter` producing the §4.1 error body | **partial** | `src/common/filters/all-exceptions.filter.ts`, registered at `src/main.ts:72` | Has `success`, `code`, `message`, `details`, `requestId`. It also adds `timestamp` and `path`, which the §4.1 body doesn't include. On 429, `details.retryAfterSeconds` (Appendix C) is not set. |
-| 5.4 | Library messages never reach clients | **done** | `src/common/filters/all-exceptions.filter.ts:109-122, 144-151` | Errors ≥ 500 and unknown errors return a generic `INTERNAL_ERROR` and the stack is logged on the server only. Validation messages come from class-validator field rules, with values hidden (`src/common/pipes/validation.pipe.ts:11`). |
+| # | Item | Before | Now | Where | Notes |
+|---|---|---|---|---|---|
+| 5.1 | `ErrorCode` enum | partial | [x] | `src/common/exceptions/error-codes.ts` | Every Appendix C code is present (checked by diffing Appendix C against the enum). Extra codes are listed under "Not in Appendix C" below. |
+| 5.2 | `AppException(ErrorCode.X, details?)` | partial | [x] | `src/common/exceptions/app.exception.ts` | Status and message come from `ERROR_DEFINITIONS`. |
+| 5.3 | Global `AllExceptionsFilter` producing the §4.1 error body | partial | [x] | `src/common/filters/all-exceptions.filter.ts` | No `timestamp` or `path`; 429 always has `details.retryAfterSeconds` (line 57). |
+| 5.4 | Library messages never reach clients | done | [x] | same | Also reports to Sentry (`captureException`). |
 
 ## 6. Responses
 
-| # | Item | Status | Where | Notes |
-|---|---|---|---|---|
-| 6.1 | `ResponseInterceptor` wraps into `{ success, data }` | **partial** | `src/common/interceptors/response.interceptor.ts`, registered at `src/main.ts:75` | Wraps correctly but adds a `timestamp` field that isn't in the §4.1 success body. |
-| 6.2 | `meta: { nextCursor }` for lists | **missing** | — | The interceptor has no way to return `meta`. There is no pagination helper. |
+| # | Item | Before | Now | Where | Notes |
+|---|---|---|---|---|---|
+| 6.1 | `ResponseInterceptor` wraps into `{ success, data }` | partial | [x] | `src/common/interceptors/response.interceptor.ts` | No `timestamp`. |
+| 6.2 | `meta: { nextCursor }` for lists | missing | [x] | `src/common/pagination/paginated.ts`, `response.interceptor.ts:28` | |
 
 ## 7. Logging
 
-| # | Item | Status | Where | Notes |
-|---|---|---|---|---|
-| 7.1 | pino JSON logs | **done** | `src/common/logging/logger.module.ts`, `src/main.ts:37-40` | nestjs-pino. Uses pino-pretty in development only. |
-| 7.2 | Request id (`x-request-id`) | **done** | `src/common/logging/logger.module.ts:53-62` | Accepts a valid incoming id or generates a UUID, and echoes it in the response header. |
-| 7.3 | Redaction of auth headers, tokens, OTP, phone, email | **done** | `src/common/logging/logger.module.ts:12-27` | `req.body` is redacted entirely. |
-| 7.4 | Redaction depth | **partial** | same | The `*.otp`, `*.email`, … wildcards match only one level of nesting. A field such as `err.details.phone` would be logged. Sentry (§3.2 tech stack) is not set up. |
+| # | Item | Before | Now | Where | Notes |
+|---|---|---|---|---|---|
+| 7.1 | pino JSON logs | done | [x] | `src/common/logging/logger.module.ts` | |
+| 7.2 | Request id (`x-request-id`) | done | [x] | `src/common/http/request-id.middleware.ts`, `logger.module.ts` | |
+| 7.3 | Redaction of auth headers, tokens, OTP, phone, email | done | [x] | `src/common/logging/redact.ts`, `logger.module.ts` | |
+| 7.4 | Redaction depth | partial | [x] | `src/common/logging/redact.ts` (`redactDeep`), `src/common/monitoring/sentry.ts` | Any depth, case-insensitive; Sentry events go through the same redaction. |
 
 ## 8. Guards & decorators
 
-| # | Item | Status | Where | Notes |
-|---|---|---|---|---|
-| 8.1 | `JwtAuthGuard` | **done** | `src/auth/guards/jwt-auth.guard.ts`, `src/auth/strategies/jwt.strategy.ts` | Checks signature, expiry, issuer, audience and HS256, then the session row, and reads the role from the DB (S3). It lives under `auth/` rather than `common/`. The session lookup is not cached in Redis (see §4). |
-| 8.2 | `VerifiedUserGuard` | **missing** | — | |
-| 8.3 | `RolesGuard` + `@Roles()` | **missing** | — | |
-| 8.4 | `EntitlementGuard` + `@RequiresEntitlement()` | **missing** | — | No entitlement stub either (§3.5 says a stub returns Free plan limits until M21). |
-| 8.5 | `@CurrentUser()` | **done** | `src/common/decorators/current-user.decorator.ts` | |
-| 8.6 | `@ClientContext()` (IP, UA, app version, device id) | **partial** | `src/common/decorators/client-context.decorator.ts`, `src/common/utils/request-context.ts` | Returns IP and UA only. App version, platform and device id are not read from the headers. |
+| # | Item | Before | Now | Where | Notes |
+|---|---|---|---|---|---|
+| 8.1 | `JwtAuthGuard` | done | [x] | `src/auth/guards/jwt-auth.guard.ts`, `src/auth/strategies/jwt.strategy.ts` | The session lookup is still not cached in Redis (S3); that belongs with M06. |
+| 8.2 | `VerifiedUserGuard` | missing | [x] | `src/common/guards/access.guards.ts:46` | Applied to routes after M11. |
+| 8.3 | `RolesGuard` + `@Roles()` | missing | [x] | `src/common/guards/access.guards.ts:25`, `access.decorators.ts` | Role read from the DB-loaded principal. |
+| 8.4 | `EntitlementGuard` + `@RequiresEntitlement()` | missing | [x] | `src/common/guards/access.guards.ts:61`, `src/common/entitlements/` | Free-plan stub until M21. |
+| 8.5 | `@CurrentUser()` | done | [x] | `src/common/decorators/current-user.decorator.ts` | |
+| 8.6 | `@ClientContext()` (IP, UA, app version, device id) | partial | [x] | `src/common/decorators/client-context.decorator.ts`, `src/common/utils/request-context.ts` | Also reads `X-Platform`. |
 
 ## 9. Rate limiting
 
-| # | Item | Status | Where | Notes |
-|---|---|---|---|---|
-| 9.1 | `@nestjs/throttler`, default 100 req / 60 s per IP | **done** | `src/app.module.ts:56, 76` | Global `ThrottlerGuard`. Health is skipped (`src/health/health.controller.ts:6`). |
-| 9.2 | Redis storage (S4: works across instances) | **missing** | `src/app.module.ts:55` | In-memory storage. There is a `TODO` comment for this. |
-| 9.3 | Per-user limits via a custom tracker keyed by user id | **missing** | — | No `getTracker` override. All limits, including the `@Throttle` on auth and account routes, are per IP. |
+| # | Item | Before | Now | Where | Notes |
+|---|---|---|---|---|---|
+| 9.1 | `@nestjs/throttler`, default 100 req / 60 s per IP | done | [x] | `src/app.module.ts:53`, `src/common/throttling/throttling.constants.ts` | |
+| 9.2 | Redis storage (S4: works across instances) | missing | [x] | `src/common/throttling/redis-throttler.storage.ts` | `test/integration/throttler.int-spec.ts` runs two instances against one Redis. |
+| 9.3 | Per-user limits via a custom tracker keyed by user id | missing | [x] | `src/common/guards/app-throttler.guard.ts` | |
 
 ## 10. Utilities
 
-| # | Item | Status | Where | Notes |
-|---|---|---|---|---|
-| 10.1 | UUID v7 generator | **missing** | `src/users/models/user.model.ts:40`, `src/security/models/security-event.model.ts:44`, seed migration line 18 | All IDs use `UUIDV4` / `randomUUID()` (v4). §4.2 requires v7. |
-| 10.2 | Text sanitizer (trim, collapse whitespace, strip control chars) | **partial** | `src/profiles/utils/sanitize.util.ts` | The function does everything the spec asks, but it lives in `profiles/` rather than `common/`. |
-| 10.3 | Cursor encode/decode (base64url JSON) | **missing** | — | |
-| 10.4 | HMAC helpers | **partial** | `src/auth/utils/crypto.util.ts:18-34` | `hmacSha256` and `timingSafeEqualHex` exist and work, but they live in `auth/` rather than `common/`. |
-| 10.5 | Distance bucket helper | **missing** | — | No `LT_2_KM`…`GT_100_KM` helper. |
+| # | Item | Before | Now | Where | Notes |
+|---|---|---|---|---|---|
+| 10.1 | UUID v7 generator | missing | [x] | `src/common/utils/uuid.ts`; `@Default(uuidv7)` on every model | The seed migration keeps `randomUUID()` because migrations that have run are never edited. |
+| 10.2 | Text sanitizer | partial | [x] | `src/common/utils/sanitize.ts` | |
+| 10.3 | Cursor encode/decode (base64url JSON) | missing | [x] | `src/common/utils/cursor.ts` | |
+| 10.4 | HMAC helpers | partial | [x] | `src/common/utils/hmac.ts` | |
+| 10.5 | Distance bucket helper | missing | [x] | `src/common/utils/distance-bucket.ts` | |
 
 ## 11. Docs & tooling
 
-| # | Item | Status | Where | Notes |
-|---|---|---|---|---|
-| 11.1 | Swagger at `/api/docs`, disabled in production | **done** | `src/common/swagger.ts`, `src/main.ts:78-80`, `src/config/app.config.ts:25` | Off by default in production. It can still be turned on with `SWAGGER_ENABLED=true`, which Appendix D allows. |
-| 11.2 | Dockerfile | **missing** | — | |
-| 11.3 | docker-compose (MySQL, Redis, LocalStack) | **missing** | — | |
-| 11.4 | Lint | **done** | `package.json:16`, `oxlint.json` | oxlint. Prettier is configured (`.prettierrc`, `format` script). |
-| 11.5 | Test | **done** | `package.json:17-21`, `jest.config.ts`, `test/jest-e2e.json` | Unit tests exist. No integration tests with Testcontainers (§3.2, Appendix E). |
-| 11.6 | CI pipeline (lint, type-check, unit + integration) | **missing** | — | No `.github/` or other CI config. There is no separate `typecheck` script, although `nest build` does type-check. |
+| # | Item | Before | Now | Where | Notes |
+|---|---|---|---|---|---|
+| 11.1 | Swagger at `/api/docs`, disabled in production | done | [x] | `src/common/swagger.ts`, `src/config/app.config.ts` | Never served by the realtime role. |
+| 11.2 | Dockerfile | missing | [ ] | — | Still missing. §3.4 puts it in `docker/`. |
+| 11.3 | docker-compose (MySQL, Redis, LocalStack) | missing | [x] | `docker-compose.yml`, `docker/mysql/init/`, `docker/localstack/init/` | In the code; working stack not verified (12.4). |
+| 11.4 | Lint | done | [x] | `package.json` (`lint`), `oxlint.json` | |
+| 11.5 | Test | done | [x] | `jest.config.ts`, `test/jest-e2e.json`, `test/jest-integration.json` | Integration tests use Testcontainers in CI. |
+| 11.6 | CI pipeline (lint, type-check, unit + integration) | missing | [x] | `.github/workflows/ci.yml`, `package.json` (`typecheck`) | In the code; not yet run (12.3). |
 
 ## 12. "Done when" criteria
 
-| # | Criterion | Status | Evidence |
+| # | Criterion | Status | How it was verified |
 |---|---|---|---|
-| 12.1 | App boots with valid env and refuses invalid env | **done** | `src/config/env.validation.ts`, `src/config/env.validation.spec.ts` |
-| 12.2 | Error and success bodies match §4.1 | **partial** | Both bodies add a `timestamp` field, the error body adds `path`, and there is no `meta`. See 5.3 and 6.1–6.2. |
-| 12.3 | CI runs lint, type-check, unit and integration tests | **missing** | No CI, and no integration tests. |
-| 12.4 | `docker-compose up` gives a working local stack | **missing** | No compose file. |
+| 12.1 | App boots with valid env and refuses invalid env | [x] verified, with a defect | **Valid:** `npm run build`, then `node dist/main` with the local `.env` (MySQL 8.4 on 3307, Redis): logged `api ready`, `GET /api/v1/health` → 200, SIGTERM → `api stopped`, exit 0. **Invalid:** `node dist/main` with one bad variable each: `JWT_ACCESS_SECRET` of 8 chars, `PORT=abc`, production without `TRUST_PROXY`, `OTP_HASH_SECRET` equal to `JWT_ACCESS_SECRET`, `OTP_DEV_ECHO=true` in production. All five exit 1 before listening, and no secret value appears in the output. With every variable in the process environment (as in production) each run names exactly the broken rule. **Tests:** `npm test -- src/config` 25/25; `npm run test:int -- entrypoints` 5/5 (all three roles start and stop on SIGTERM; wrong `APP_ROLE` refused). **Defect:** see below. |
+| 12.2 | Error and success bodies match §4.1 | [x] verified | Live against `node dist/main`: `GET /api/v1/health` → `{"success":true,"data":{…}}`; 404 unknown path, 401 protected route without a token, 400 malformed JSON, 400 validation (`details.errors`), 413 over 100 kb → each exactly `success`, `code`, `message`, optional `details`, `requestId` (no `timestamp`, `path` or library text). **Tests:** `npm run test:e2e -- app.e2e` 13/13 (exact key sets, `requestId` equals the `x-request-id` header, 429 with `details.retryAfterSeconds`); `npm test -- response.interceptor all-exceptions.filter` 8/8 (including `meta.nextCursor` for lists). |
+| 12.3 | CI runs lint, type-check, unit and integration tests | **PENDING** | Pending until the branch is pushed and the GitHub Actions run is green. What was checked here: `.github/workflows/ci.yml` runs `lint`, `typecheck`, `build`, unit, integration and e2e. Each of those commands passes locally: lint exit 0, typecheck exit 0, build exit 0, unit 407/407, integration 18/18, e2e 24/24. Locally they run against Homebrew MySQL 8.4 and Redis DB 15, not the Testcontainers MySQL/Redis CI starts, and the `docker compose config` step can't run here. |
+| 12.4 | `docker-compose up` gives a working local stack | **PENDING** | Pending: Docker is not installed on this machine (`docker` and `docker-compose` not found), so the stack couldn't be started. `docker-compose.yml` exists with MySQL, Redis and LocalStack services and healthchecks; CI validates the file with `docker compose config`. |
 
-Two more things about `test/app.e2e-spec.ts`. It boots the full `AppModule`, so it needs a live MySQL. It also doesn't install the global filter or interceptor, so it asserts `{ status: 'ok' }` instead of the wrapped body. As written it won't catch regressions in the response shape.
+### Defect found while verifying 12.1 (not fixed; docs-only commit)
+
+When the variables come from `.env`, a boot failure shows the wrong message. The app still refuses to start, and no values leak.
+
+- In Nest 12, `ConfigModule.forRoot()` is `async`. When `validateEnv` throws, the error becomes a rejected promise, and `.env` is never copied into `process.env`.
+- The `imports` array keeps being evaluated. `observeImports()` in `src/app.module.ts` then calls `getValidatedEnv()`, which re-validates bare `process.env`. That throws first, listing `DB_HOST`, `DB_USER`, `DB_NAME` and the three secrets as missing.
+- So with a single bad variable, the message also lists variables that `.env` does set. For the cross-variable rules (`TRUST_PROXY` in production, equal secrets, `OTP_DEV_ECHO` in production) the real reason isn't shown at all.
+- Production passes variables through the environment, not `.env`, so the message is correct there (verified above).
+- The comment in `src/core.module.ts` ("ConfigModule.forRoot() runs when this file is imported, so .env is loaded and validated before…") states the assumption that fails.
+- **Fix later:** load `.env` synchronously before validation, or make `getValidatedEnv()` read the same merged config `forRoot()` uses. Add a test that boots with one bad variable and asserts only that variable is named.
+
+The earlier remark about `test/app.e2e-spec.ts` is resolved: it now builds the app through `configureApp()` (filter, interceptor, prefix) and asserts the wrapped bodies.
 
 ---
 
