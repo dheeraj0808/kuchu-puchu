@@ -23,6 +23,22 @@ export const TABLE_OPTIONS_0900: QueryInterfaceCreateTableOptions = {
   collate: 'utf8mb4_0900_ai_ci',
 };
 
+/**
+ * Every UUID id or foreign-key column is CHAR(36) utf8mb4_bin: exact,
+ * case-sensitive matching, while other text columns use utf8mb4_0900_ai_ci.
+ * The schema test (test/integration/schema.int-spec.ts) enforces this.
+ */
+export const UUID_COLUMN_TYPE = 'CHAR(36) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin';
+
+/** A UUID column for new migrations. Pass `references` for a foreign key. */
+export const uuidColumn = (
+  options: Omit<ModelAttributeColumnOptions, 'type'> = {},
+): ModelAttributeColumnOptions => ({
+  allowNull: false,
+  ...options,
+  type: UUID_COLUMN_TYPE,
+});
+
 export const createdAtColumn = (): ModelAttributeColumnOptions => ({
   type: DataTypes.DATE(3),
   allowNull: false,

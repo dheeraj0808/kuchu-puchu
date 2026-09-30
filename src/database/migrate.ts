@@ -1,10 +1,11 @@
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-import { Sequelize, type Options, type QueryInterface } from 'sequelize';
+import { QueryTypes, Sequelize, type Options, type QueryInterface } from 'sequelize';
 import { SequelizeStorage, Umzug } from 'umzug';
 
 import { type MigrationDefinition, migrations } from './migrations';
+import { assertSupportedServer } from './server-version';
 import { type SeederDefinition, seeders } from './seeders';
 
 /** Reverting is for local development only. */
@@ -70,6 +71,7 @@ async function createDatabase(): Promise<void> {
   const name = databaseName();
   const sequelize = buildSequelize(false);
   try {
+    await assertServer(sequelize);
     await sequelize.query(
       `CREATE DATABASE IF NOT EXISTS \`${name}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci`,
     );
@@ -108,10 +110,18 @@ function buildUmzug(
   });
 }
 
+async function assertServer(sequelize: Sequelize): Promise<void> {
+  const [{ version }] = await sequelize.query<{ version: string }>('SELECT VERSION() AS version', {
+    type: QueryTypes.SELECT,
+  });
+  assertSupportedServer(version);
+}
+
 async function runMigrations(command: string): Promise<void> {
   const sequelize = buildSequelize(true);
   try {
     await sequelize.authenticate();
+    await assertServer(sequelize);
     const umzug = buildUmzug(sequelize, migrations, 'sequelize_meta');
     switch (command) {
       case 'up': {

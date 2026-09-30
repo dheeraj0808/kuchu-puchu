@@ -22,7 +22,7 @@ export default async function globalSetup(): Promise<void> {
 
   const root = resolve(__dirname, '../..');
   const tsNode = resolve(root, 'node_modules/.bin/ts-node');
-  for (const command of ['db:create', 'up']) {
+  for (const command of ['db:create', 'up', 'seed']) {
     execFileSync(tsNode, ['src/database/migrate.ts', command], { cwd: root, env: process.env, stdio: 'pipe' });
   }
 }

@@ -1,6 +1,8 @@
-import { Logger, Module } from '@nestjs/common';
+import { Injectable, Logger, Module, type OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SequelizeModule, SequelizeModuleOptions } from '@nestjs/sequelize';
+import { QueryTypes } from 'sequelize';
+import { Sequelize } from 'sequelize-typescript';
 
 import type { DatabaseConfig } from '../config/database.config';
 import { OtpVerification } from '../auth/models/otp-verification.model';
@@ -11,8 +13,22 @@ import { ProfileInterest } from '../interests/models/profile-interest.model';
 import { DatingPreference } from '../preferences/models/dating-preference.model';
 import { Profile } from '../profiles/models/profile.model';
 import { User } from '../users/models/user.model';
+import { assertSupportedServer } from './server-version';
 
 const sqlLogger = new Logger('Sequelize');
+
+/** Refuses to boot on anything but MySQL ≥ 8.4, so MariaDB is never used by accident. */
+@Injectable()
+export class DatabaseServerCheck implements OnModuleInit {
+  constructor(private readonly sequelize: Sequelize) {}
+
+  async onModuleInit(): Promise<void> {
+    const [{ version }] = await this.sequelize.query<{ version: string }>('SELECT VERSION() AS version', {
+      type: QueryTypes.SELECT,
+    });
+    assertSupportedServer(version);
+  }
+}
 
 @Module({
   imports: [
@@ -53,5 +69,6 @@ const sqlLogger = new Logger('Sequelize');
       },
     }),
   ],
+  providers: [DatabaseServerCheck],
 })
 export class DatabaseModule {}

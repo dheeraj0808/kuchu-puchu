@@ -1,4 +1,5 @@
-import { Logger as NestLogger } from '@nestjs/common';
+import { writeSync } from 'node:fs';
+
 import { NestFactory } from '@nestjs/core';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Logger } from 'nestjs-pino';
@@ -17,10 +18,9 @@ async function bootstrap(): Promise<void> {
 }
 
 bootstrap().catch((err: unknown) => {
-  const logger = new NestLogger('Bootstrap');
-  logger.error(
-    'Application failed to start',
-    err instanceof Error ? err.stack : undefined,
-  );
+  // Written synchronously: the app logger is async and process.exit() would
+  // drop the message, leaving no clue why the server refused to start.
+  const detail = err instanceof Error ? (err.stack ?? err.message) : String(err);
+  writeSync(process.stderr.fd, `Application failed to start: ${detail}\n`);
   process.exit(1);
 });

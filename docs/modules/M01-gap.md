@@ -187,3 +187,29 @@ Removed because nothing used them and Appendix D doesn't list them: `AWS_ACCESS_
 
 - **Mobile app:** mobile-app `EXPO_PUBLIC_API_URL` must change to `/api/v1` when this merges.
 - **M06:** the auth routes are `/auth/request-otp` and `/auth/verify-otp`. The guide says `/auth/otp/request` and `/auth/otp/verify`. Rename them in M06.
+
+### Database server: MariaDB → MySQL 8.4 LTS (2026-09-30)
+
+The local database was XAMPP **MariaDB 10.4.28** on port 3306, not MySQL. The guide targets MySQL 8.4 LTS (§3.2), and MariaDB doesn't support what later modules need:
+
+| Needs MySQL 8.x | Why | Module |
+|---|---|---|
+| `FOR UPDATE SKIP LOCKED` with MySQL's semantics | The outbox relay lets several workers take different events without blocking each other | M03 |
+| Multi-valued JSON index | `dating_preferences.preferred_genders` index | M10 |
+| Native `JSON` type | MariaDB's `JSON` is an alias for `LONGTEXT` with a check, so there's no binary storage and no JSON indexes | M03, M05, M10, M14… |
+| `utf8mb4_0900_ai_ci` collation | Guide §4.2; MariaDB 10.4 doesn't have it | all |
+
+Local development now uses Homebrew `mysql@8.4` (8.4.11) on **127.0.0.1:3307**, with its own data directory. MariaDB on 3306 is untouched, and no data was imported from it: the `kuchu_puchu` and `kuchu_puchu_test` databases were created fresh, and all migrations and seeders were run on them. To make this impossible to get wrong again, the app refuses to boot, and `migrate` refuses to run, unless `SELECT VERSION()` is MySQL ≥ 8.4 (`src/database/server-version.ts`).
+
+### Collation rule
+
+- Database, tables and all text columns are `utf8mb4_0900_ai_ci` (migration `20261002000001-convert-collation-utf8mb4-0900`).
+- Exception: every `CHAR(36)` UUID id / FK column stays `utf8mb4_bin` for exact, case-sensitive matching.
+- New migrations use `TABLE_OPTIONS_0900` and `uuidColumn()` from `src/database/migrations/helpers.ts`. `test/integration/schema.int-spec.ts` fails if any UUID column isn't `utf8mb4_bin`, or any other text column or table isn't `utf8mb4_0900_ai_ci`.
+
+### Part B decisions
+
+- **Throttler storage:** custom Redis storage (`src/common/throttling/redis-throttler.storage.ts`) using an atomic Lua script, because `@nest-lab/throttler-storage-redis` doesn't support Nest 12.
+- **Rate-limit counters:** the per-IP (`default`) and per-user (`user`) budgets are global across routes. A route with its own `@Throttle()` limit gets a separate per-route counter. The per-user default is 100 / 60 s, the same as the IP limit; write endpoints set tighter `user` limits as their modules are built.
+- **Per-user tracker:** the user id comes from the bearer token after its signature, expiry, issuer and audience are verified. The session row is still checked later by `JwtAuthGuard`. A forged token is never counted against the user it names.
+- **UUID v7:** all new rows get v7 ids (`src/common/utils/uuid.ts`). Existing v4 ids are unchanged, so `interestIds` validation accepts both v4 and v7.

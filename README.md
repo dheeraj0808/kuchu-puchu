@@ -28,33 +28,78 @@
 ## Project setup
 
 ```bash
-$ npm install
+npm install
+cp .env.example .env   # then fill in the secrets
 ```
+
+### Local MySQL 8.4
+
+The backend needs **MySQL 8.4 LTS or newer**. It refuses to start (and `migrate` refuses to run) on MariaDB or older MySQL, because later modules rely on `FOR UPDATE SKIP LOCKED`, multi-valued JSON indexes, the native JSON type and the `utf8mb4_0900_ai_ci` collation.
+
+Locally, MySQL 8.4 runs from Homebrew's keg-only `mysql@8.4` on **127.0.0.1:3307**. It has its own data directory, so it doesn't clash with XAMPP/MariaDB on 3306 or with the Homebrew `mysql` 9.x data in `/opt/homebrew/var/mysql`:
+
+| | |
+|---|---|
+| Config | `/opt/homebrew/etc/mysql@8.4/my.cnf` |
+| Data | `/opt/homebrew/var/mysql@8.4` |
+| Root login | `/opt/homebrew/etc/mysql@8.4/root.cnf` (mode 600) |
+| App user | `kuchu_puchu`, with access to `kuchu_puchu` and `kuchu_puchu_test` only |
+
+```bash
+M=$(brew --prefix mysql@8.4)/bin
+# start (it does not start at login; don't use `brew services`, which would use the 9.x data dir)
+nohup "$M/mysqld_safe" --defaults-file=/opt/homebrew/etc/mysql@8.4/my.cnf >/dev/null 2>&1 &
+# stop
+"$M/mysqladmin" --defaults-extra-file=/opt/homebrew/etc/mysql@8.4/root.cnf shutdown
+# shell as root
+"$M/mysql" --defaults-extra-file=/opt/homebrew/etc/mysql@8.4/root.cnf
+```
+
+Use the binaries under `$(brew --prefix mysql@8.4)/bin`. The plain `mysql` on your PATH is the 9.x client.
+
+### Redis
+
+Redis 7 on `REDIS_URL` (default `redis://localhost:6379` outside production). Every key the app writes starts with `kp:`. Rate limits are `kp:throttle:…`; BullMQ queues (from M03) are `kp:queue:…`.
+
+### Database scripts
+
+```bash
+npm run db:create        # create DB_NAME (utf8mb4 / utf8mb4_0900_ai_ci) if missing
+npm run migrate          # apply pending migrations
+npm run migrate:status   # list executed / pending migrations
+npm run migrate:down     # revert the last migration (NODE_ENV development/test only)
+npm run seed             # run pending seeders (src/database/seeders)
+npm run migrate:prod     # production: apply migrations from dist/
+```
+
+Migrations are forward-only outside development: never edit one that has run. New tables use `TABLE_OPTIONS_0900`, and every UUID id / FK column uses `uuidColumn()` (`CHAR(36)` `utf8mb4_bin`) from `src/database/migrations/helpers.ts`.
 
 ## Compile and run the project
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npm run start        # development
+npm run start:dev    # watch mode
+npm run start:prod   # production (node dist/main)
 ```
 
 ## Run tests
 
 ```bash
-npm test            # unit tests (no database or Redis)
-npm run test:e2e    # e2e tests against a real MySQL
-npm run test:cov    # unit test coverage
+npm test             # unit tests (no database or Redis)
+npm run test:e2e     # e2e tests: real MySQL + Redis
+npm run test:int     # integration tests: two app instances on one Redis, schema checks
+npm run test:cov     # unit test coverage
 ```
 
 ### Tests never touch dev data
 
-- **MySQL:** e2e tests always use a dedicated database, `kuchu_puchu_test` by default. You can override it with `TEST_DB_NAME`, but the name must end in `_test` or the run refuses to start (`test/support/test-env.ts`). Before the suite runs, `test/support/global-setup.ts` creates that database if needed and applies all migrations. The connection details (`DB_HOST`, `DB_USER`, `DB_PASSWORD`) come from `.env`; only the database name is replaced. One e2e test checks `SELECT DATABASE()` to prove it.
+- **MySQL:** e2e and integration tests always use a dedicated database, `kuchu_puchu_test` by default. You can override it with `TEST_DB_NAME`, but the name must end in `_test` or the run refuses to start (`test/support/test-env.ts`). Before a run, `test/support/global-setup.ts` creates it if needed, applies all migrations and runs the seeders. Connection details (`DB_HOST`, `DB_USER`, `DB_PASSWORD`) come from `.env`; only the database name is replaced. Tests check `SELECT DATABASE()` to prove it.
+- **Redis:** tests never use your dev Redis DB. In order of preference (`test/support/test-redis.ts`):
+  1. `TEST_REDIS_URL`, if set. It must name a DB index other than 0.
+  2. A throwaway **Testcontainers** Redis 7. CI (`CI=true`) requires this.
+  3. Without Docker, locally: your local Redis on **DB index 15**.
+
+  Cleanup deletes only `kp:*` keys (via `SCAN` + `DEL`) and refuses to touch DB 0 unless it's a throwaway container. `FLUSHALL` and `FLUSHDB` are never used. Each test worker also refuses to start if `REDIS_URL` isn't a test Redis.
 
 ## Deployment
 
