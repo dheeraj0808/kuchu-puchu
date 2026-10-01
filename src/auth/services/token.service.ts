@@ -8,7 +8,9 @@ import type { JwtPayload } from '../interfaces/jwt-payload.interface';
 import { generateTokenSecret, parseDuration } from '../utils/crypto.util';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const SECRET_REGEX = /^[A-Za-z0-9_-]{43,128}$/;
+/** generateTokenSecret(): 48 random bytes, base64url = exactly 64 chars. */
+const SECRET_REGEX = /^[A-Za-z0-9_-]{64}$/;
+const DAY_MS = 86_400_000;
 
 export interface SignedAccessToken {
   token: string;
@@ -35,15 +37,22 @@ export class TokenService {
     return parseDuration(this.cfg.accessExpiresIn);
   }
 
-  get refreshTtlSeconds(): number {
-    return parseDuration(this.cfg.refreshExpiresIn);
+  /** SESSION_SLIDING_DAYS in ms. */
+  get slidingMs(): number {
+    return this.cfg.sessionSlidingDays * DAY_MS;
   }
 
-  async signAccessToken(payload: Pick<JwtPayload, 'sub' | 'sid' | 'role'>): Promise<SignedAccessToken> {
+  /** SESSION_MAX_DAYS in ms. */
+  get maxLifetimeMs(): number {
+    return this.cfg.sessionMaxDays * DAY_MS;
+  }
+
+  /** HS256 with claims {sub, sid, iss, aud} (guide M06). The role is never in the token. */
+  async signAccessToken(payload: Pick<JwtPayload, 'sub' | 'sid'>): Promise<SignedAccessToken> {
     const cfg = this.cfg;
     const expiresInSeconds = parseDuration(cfg.accessExpiresIn);
     const token = await this.jwt.signAsync(
-      { sub: payload.sub, sid: payload.sid, role: payload.role },
+      { sub: payload.sub, sid: payload.sid },
       {
         secret: cfg.accessSecret,
         expiresIn: expiresInSeconds,
@@ -59,10 +68,12 @@ export class TokenService {
     return generateTokenSecret();
   }
 
+  /** "<sessionId>.<64-char secret>" */
   buildRefreshToken(sessionId: string, secret: string): string {
     return `${sessionId}.${secret}`;
   }
 
+  /** Only this HMAC (JWT_REFRESH_SECRET) is stored. */
   hashRefreshSecret(secret: string): string {
     return hmacSha256(this.cfg.refreshSecret, secret);
   }

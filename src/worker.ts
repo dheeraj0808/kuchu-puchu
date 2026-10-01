@@ -2,6 +2,7 @@ import { type INestApplicationContext, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
 
+import { AuthWorkerModule } from './auth/auth-cleanup.jobs';
 import { runRole } from './bootstrap/run-role';
 import { AppRole } from './config/env.validation';
 import { CoreModule } from './core.module';
@@ -29,6 +30,7 @@ import { UsersWorkerModule } from './users/revoke-sessions.handler';
     SecurityModule,
     SecurityWorkerModule,
     UsersWorkerModule,
+    AuthWorkerModule,
   ],
 })
 export class WorkerModule {}

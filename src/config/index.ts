@@ -6,6 +6,7 @@ import outboxConfig from './outbox.config';
 import profileConfig from './profile.config';
 import securityConfig from './security.config';
 import { alertsConfig, awsConfig, fcmConfig, redisConfig } from './integrations.config';
+import { emailConfig, smsConfig } from './messaging.config';
 
 export { getValidatedEnv, validateEnv } from './env.validation';
 export { appConfig, databaseConfig, jwtConfig, otpConfig, outboxConfig, profileConfig };
@@ -22,4 +23,6 @@ export const configLoaders = [
   awsConfig,
   fcmConfig,
   alertsConfig,
+  smsConfig,
+  emailConfig,
 ];

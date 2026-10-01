@@ -8,10 +8,13 @@ import { getValidatedEnv } from './config';
 import { CoreModule } from './core.module';
 import { EntitlementsModule } from './common/entitlements/entitlements.service';
 import { AppThrottlerGuard } from './common/guards/app-throttler.guard';
-import { OnboardingModule } from './common/onboarding/onboarding-status.service';
+import { OnboardingModule } from './common/onboarding/onboarding.module';
 import { RedisThrottlerStorage } from './common/throttling/redis-throttler.storage';
 import { IP_LIMIT, THROTTLER_IP, THROTTLER_USER, USER_LIMIT } from './common/throttling/throttling.constants';
+import { AlertsModule } from './infra/alerts/alerts.module';
+import { EmailModule } from './infra/email/email.module';
 import { QueueConnectionModule } from './infra/queue/queue-connection.module';
+import { SmsModule } from './infra/sms/sms.module';
 import { REDIS_CLIENT } from './infra/redis/redis.module';
 import { HealthModule } from './health/health.module';
 import { SecurityModule } from './security/security.module';
@@ -62,6 +65,9 @@ function observeImports(): DynamicModule[] {
       }),
     }),
     SecurityModule,
+    AlertsModule,
+    SmsModule,
+    EmailModule,
     HealthModule,
     EntitlementsModule,
     OnboardingModule,

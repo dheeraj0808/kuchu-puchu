@@ -17,6 +17,7 @@ import { OUTBOX_QUEUE_NAME } from '../../src/events/outbox.constants';
 import { OutboxService } from '../../src/events/outbox.service';
 import { FakeAlertProvider } from '../../src/infra/alerts/fake-alert.provider';
 import { QUEUE_PREFIX, type QueueConnectionOptions } from '../../src/infra/queue/queue-connection.module';
+import { CaptureLogger } from './log-capture';
 
 /** Small, fast values; each test overrides what it exercises. */
 export function testOutboxConfig(overrides: Partial<OutboxConfig> = {}): OutboxConfig {
@@ -102,8 +103,8 @@ export class OutboxHarness {
   ) {}
 
   static async create(): Promise<OutboxHarness> {
-    // Services built by hand use Nest's static Logger; keep test output clean.
-    Logger.overrideLogger(false);
+    // Services built by hand use Nest's static Logger; it goes to the log capture (log-scan.ts), not the console.
+    Logger.overrideLogger(new CaptureLogger());
     const moduleRef = await Test.createTestingModule({ imports: [CoreModule, EventsModule] }).compile();
     await moduleRef.init();
     return new OutboxHarness(moduleRef, moduleRef.get<Sequelize>(getConnectionToken()), moduleRef.get(OutboxService));

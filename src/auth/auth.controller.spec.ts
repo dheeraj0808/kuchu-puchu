@@ -8,6 +8,8 @@ import { Test } from '@nestjs/testing';
 import type { Sequelize } from 'sequelize-typescript';
 import request from 'supertest';
 
+import type { OnboardingService } from '../common/onboarding/onboarding.service';
+import type { OutboxService } from '../events/outbox.service';
 import type { ProfilesService } from '../profiles/profiles.service';
 import { SecurityEventsService } from '../security/security-events.service';
 import { UserResponseDto } from '../users/dto/user-response.dto';
@@ -38,6 +40,7 @@ describe('AuthController (GET /auth/me, POST /auth/logout-all) with real JwtStra
     revokeAllForUser: jest.fn().mockResolvedValue(2),
   };
   const profilesMock = { getOwnOrNull: jest.fn().mockResolvedValue(null) };
+  const onboardingMock = { nextStep: jest.fn().mockResolvedValue('selfie') };
   const usersMock = {
     findById: jest.fn(),
     toResponse: (u: User): UserResponseDto => UserResponseDto.fromModel(u),
@@ -67,8 +70,10 @@ describe('AuthController (GET /auth/me, POST /auth/logout-all) with real JwtStra
               t,
               u,
               fakeSecurityEvents() as SecurityEventsService,
-              {} as Sequelize,
+              {} as OutboxService,
+              onboardingMock as unknown as OnboardingService,
               profilesMock as unknown as ProfilesService,
+              {} as Sequelize,
             ),
         },
       ],
@@ -101,7 +106,7 @@ describe('AuthController (GET /auth/me, POST /auth/logout-all) with real JwtStra
 
   it('401 with token signed by wrong secret', async () => {
     const forged = await new JwtService().signAsync(
-      { sub: user.id, sid: session.id, role: user.role },
+      { sub: user.id, sid: session.id },
       { secret: 'x'.repeat(40), issuer: TEST_JWT_CONFIG.issuer, audience: TEST_JWT_CONFIG.audience },
     );
     await request(app.getHttpServer()).get('/auth/me').set('Authorization', `Bearer ${forged}`).expect(401);
@@ -109,20 +114,20 @@ describe('AuthController (GET /auth/me, POST /auth/logout-all) with real JwtStra
 
   it('401 with expired token', async () => {
     const expired = await new JwtService().signAsync(
-      { sub: user.id, sid: session.id, role: user.role, exp: Math.floor(Date.now() / 1000) - 10 },
+      { sub: user.id, sid: session.id, exp: Math.floor(Date.now() / 1000) - 10 },
       { secret: TEST_JWT_CONFIG.accessSecret, issuer: TEST_JWT_CONFIG.issuer, audience: TEST_JWT_CONFIG.audience },
     );
     await request(app.getHttpServer()).get('/auth/me').set('Authorization', `Bearer ${expired}`).expect(401);
   });
 
   it('401 when session revoked', async () => {
-    const { token } = await tokens.signAccessToken({ sub: user.id, sid: session.id, role: user.role });
+    const { token } = await tokens.signAccessToken({ sub: user.id, sid: session.id });
     sessionsMock.findActiveSession.mockResolvedValueOnce(null);
     await request(app.getHttpServer()).get('/auth/me').set('Authorization', `Bearer ${token}`).expect(401);
   });
 
   it('200 with valid token returns the user', async () => {
-    const { token } = await tokens.signAccessToken({ sub: user.id, sid: session.id, role: user.role });
+    const { token } = await tokens.signAccessToken({ sub: user.id, sid: session.id });
     const res = await request(app.getHttpServer())
       .get('/auth/me')
       .set('Authorization', `Bearer ${token}`)
@@ -132,10 +137,11 @@ describe('AuthController (GET /auth/me, POST /auth/logout-all) with real JwtStra
     expect(body.email).toBe(user.email);
     expect(body).not.toHaveProperty('isBanned');
     expect(body.profile).toBeNull();
+    expect(body.nextStep).toBe('selfie');
   });
 
   it('logout-all revokes every session for the caller', async () => {
-    const { token } = await tokens.signAccessToken({ sub: user.id, sid: session.id, role: user.role });
+    const { token } = await tokens.signAccessToken({ sub: user.id, sid: session.id });
     await request(app.getHttpServer())
       .post('/auth/logout-all')
       .set('Authorization', `Bearer ${token}`)

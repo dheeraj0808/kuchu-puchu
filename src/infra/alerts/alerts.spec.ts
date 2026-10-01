@@ -23,6 +23,12 @@ describe('alert formatting', () => {
     );
   });
 
+  it('formats SMS budget alerts with counts only', () => {
+    expect(formatAlert({ kind: 'sms_budget_warning', used: 8000, budget: 10000, day: '2026-10-01' }, 'production')).toBe(
+      '[kuchu-puchu production] Daily SMS budget is 80% used: used=8000 budget=10000 day=2026-10-01',
+    );
+  });
+
   it('replaces anything that is not a plain identifier, so no free text or Slack markup gets through', () => {
     expect(safeAlertValue('<!channel> user@example.com')).toBe('unknown');
     expect(formatAlert({ ...alert, eventType: 'x y', errorClass: '<@U1>' }, 'prod')).not.toMatch(/[<>@ ]x|<@/);

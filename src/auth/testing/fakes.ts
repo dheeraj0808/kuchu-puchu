@@ -32,19 +32,26 @@ export function fakeSession(overrides: Partial<Session> = {}): Session {
     id: randomUUID(),
     userId: randomUUID(),
     refreshTokenHash: 'a'.repeat(64),
-    previousRefreshTokenHash: null,
-    deviceId: null,
-    deviceName: null,
-    ipAddress: null,
-    userAgent: null,
-    lastUsedAt: null,
+    previousTokenHash: null,
+    deviceId: 'device-1',
+    deviceName: 'Test phone',
+    platform: 'android',
+    appVersion: '1.0.0',
+    ipAddress: '192.0.2.1',
+    userAgent: 'jest',
+    lastUsedAt: new Date(),
     expiresAt: new Date(Date.now() + 86_400_000),
+    absoluteExpiresAt: new Date(Date.now() + 90 * 86_400_000),
+    reauthenticatedAt: null,
     revokedAt: null,
     revokedReason: null,
+    createdAt: new Date(),
     ...overrides,
   } as Record<string, unknown>;
   s.isUsable = (now: Date = new Date()): boolean =>
-    !s.revokedAt && (s.expiresAt as Date).getTime() > now.getTime();
+    !s.revokedAt &&
+    (s.expiresAt as Date).getTime() > now.getTime() &&
+    (s.absoluteExpiresAt as Date).getTime() > now.getTime();
   s.set = (changes: Record<string, unknown>): void => {
     Object.assign(s, changes);
   };

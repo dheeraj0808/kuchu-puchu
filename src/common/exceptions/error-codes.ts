@@ -17,7 +17,6 @@ export enum ErrorCode {
   // 401
   Unauthorized = 'UNAUTHORIZED',
   OtpInvalid = 'OTP_INVALID',
-  InvalidRefreshToken = 'INVALID_REFRESH_TOKEN', // not in Appendix C
 
   // 403
   Forbidden = 'FORBIDDEN',
@@ -94,10 +93,6 @@ export const ERROR_DEFINITIONS: Record<ErrorCode, ErrorDefinition> = {
   [ErrorCode.OtpInvalid]: {
     httpStatus: HttpStatus.UNAUTHORIZED,
     defaultMessage: 'Invalid or expired verification code',
-  },
-  [ErrorCode.InvalidRefreshToken]: {
-    httpStatus: HttpStatus.UNAUTHORIZED,
-    defaultMessage: 'Invalid or expired refresh token',
   },
 
   [ErrorCode.Forbidden]: { httpStatus: HttpStatus.FORBIDDEN, defaultMessage: 'Forbidden' },

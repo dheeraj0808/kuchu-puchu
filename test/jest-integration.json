@@ -15,5 +15,8 @@
   "setupFiles": [
     "<rootDir>/support/setup-env.ts"
   ],
-  "testTimeout": 120000
+  "testTimeout": 120000,
+  "setupFilesAfterEnv": [
+    "<rootDir>/support/log-scan.ts"
+  ]
 }

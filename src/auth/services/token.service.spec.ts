@@ -2,7 +2,6 @@ import 'reflect-metadata';
 
 import { JwtService } from '@nestjs/jwt';
 
-import { UserRole } from '../../users/models/user.model';
 import { createTestConfig, TEST_JWT_CONFIG } from '../testing/test-config';
 import { TokenService } from './token.service';
 
@@ -12,7 +11,6 @@ describe('TokenService', () => {
   const payload = {
     sub: '6f1c2e0a-8a1b-4c2d-9e3f-0a1b2c3d4e5f',
     sid: '7a1c2e0a-8a1b-4c2d-9e3f-0a1b2c3d4e5f',
-    role: UserRole.User,
   };
 
   it('signs HS256 access tokens with iss/aud/exp', async () => {
@@ -25,6 +23,8 @@ describe('TokenService', () => {
       algorithms: ['HS256'],
     });
     expect(decoded).toMatchObject(payload);
+    // Guide M06: claims {sub, sid, iss, aud} only; the role is read from the database.
+    expect(Object.keys(decoded).sort()).toEqual(['aud', 'exp', 'iat', 'iss', 'sid', 'sub']);
     expect((decoded.exp as number) - (decoded.iat as number)).toBe(900);
   });
 
@@ -47,6 +47,8 @@ describe('TokenService', () => {
     expect(tokens.parseRefreshToken(`nope.${secret}`)).toBeNull();
     expect(tokens.parseRefreshToken(`${payload.sid}.${secret}!`)).toBeNull();
     expect(tokens.parseRefreshToken('')).toBeNull();
+    expect(secret).toHaveLength(64);
+    expect(tokens.parseRefreshToken(`${payload.sid}.${secret}x`)).toBeNull();
   });
 
   it('refresh hash is keyed and not the secret', () => {
@@ -54,6 +56,7 @@ describe('TokenService', () => {
     const h = tokens.hashRefreshSecret(secret);
     expect(h).toMatch(/^[0-9a-f]{64}$/);
     expect(h).not.toContain(secret);
-    expect(tokens.refreshTtlSeconds).toBe(7 * 86400);
+    expect(tokens.slidingMs).toBe(30 * 86_400_000);
+    expect(tokens.maxLifetimeMs).toBe(90 * 86_400_000);
   });
 });

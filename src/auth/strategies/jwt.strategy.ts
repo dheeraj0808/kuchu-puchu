@@ -4,7 +4,6 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 
 import type { JwtConfig } from '../../config/jwt.config';
-import { UserRole } from '../../users/models/user.model';
 import type { AuthenticatedUser } from '../interfaces/authenticated-user.interface';
 import type { JwtPayload } from '../interfaces/jwt-payload.interface';
 import type { Request } from 'express';
@@ -16,7 +15,6 @@ import { AppException, ErrorCode } from '../../common/exceptions/app.exception';
 import { SessionStateService, stateCanAuthenticate } from '../session-state/session-state.service';
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ROLES: readonly string[] = Object.values(UserRole);
 
 function isJwtPayload(value: unknown): value is JwtPayload {
   if (typeof value !== 'object' || value === null) return false;
@@ -25,9 +23,7 @@ function isJwtPayload(value: unknown): value is JwtPayload {
     typeof p.sub === 'string' &&
     UUID_REGEX.test(p.sub) &&
     typeof p.sid === 'string' &&
-    UUID_REGEX.test(p.sid) &&
-    typeof p.role === 'string' &&
-    ROLES.includes(p.role)
+    UUID_REGEX.test(p.sid)
   );
 }
 

@@ -10,18 +10,18 @@ import {
   type ValidationArguments,
 } from 'class-validator';
 
-import { IdentifierType } from '../models/otp-verification.model';
+import { OtpChannel } from '../models/otp-verification.model';
 import { normalizeEmail, normalizePhone, toE164 } from '../utils/identifier.util';
 
 function normalizeIdentifierTransform({ value, obj }: TransformFnParams): unknown {
   if (typeof value !== 'string') return value;
-  const type: unknown = (obj as Record<string, unknown>).identifierType;
-  if (type === IdentifierType.Email) return normalizeEmail(value);
-  if (type === IdentifierType.Phone) return normalizePhone(value);
+  const channel: unknown = (obj as Record<string, unknown>).channel;
+  if (channel === OtpChannel.Email) return normalizeEmail(value);
+  if (channel === OtpChannel.Sms) return normalizePhone(value);
   return value.trim();
 }
 
-/** Validates the identifier according to the sibling `identifierType`. */
+/** Validates the identifier according to the sibling `channel` (sms: phone, email: email). */
 function IsIdentifierForType(): PropertyDecorator {
   return (target: object, propertyName: string | symbol): void => {
     registerDecorator({
@@ -31,20 +31,20 @@ function IsIdentifierForType(): PropertyDecorator {
       validator: {
         validate(value: unknown, args: ValidationArguments): boolean {
           if (typeof value !== 'string') return false;
-          const type: unknown = (args.object as Record<string, unknown>).identifierType;
-          if (type === IdentifierType.Email) {
+          const channel: unknown = (args.object as Record<string, unknown>).channel;
+          if (channel === OtpChannel.Email) {
             return value.length <= 254 && isEmail(value);
           }
-          if (type === IdentifierType.Phone) {
+          if (channel === OtpChannel.Sms) {
             // The transform already produced E.164 for every valid number.
             return toE164(value) === value;
           }
-          // identifierType itself is invalid; reported by @IsEnum.
+          // channel itself is invalid; reported by @IsEnum.
           return true;
         },
         defaultMessage(args: ValidationArguments): string {
-          const type: unknown = (args.object as Record<string, unknown>).identifierType;
-          return type === IdentifierType.Phone
+          const channel: unknown = (args.object as Record<string, unknown>).channel;
+          return channel === OtpChannel.Sms
             ? 'identifier must be a valid phone number (e.g. +919876543210 or 9876543210)'
             : 'identifier must be a valid email address';
         },
@@ -53,10 +53,10 @@ function IsIdentifierForType(): PropertyDecorator {
   };
 }
 
-export function IdentifierTypeField(): PropertyDecorator {
+export function ChannelField(): PropertyDecorator {
   return applyDecorators(
-    ApiProperty({ enum: IdentifierType, example: IdentifierType.Email }),
-    IsEnum(IdentifierType),
+    ApiProperty({ enum: OtpChannel, example: OtpChannel.Sms, description: 'sms: identifier is a phone number; email: an email address' }),
+    IsEnum(OtpChannel),
   );
 }
 

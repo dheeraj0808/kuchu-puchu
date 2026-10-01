@@ -16,4 +16,9 @@ export function applyTestEnv(): void {
   // Tests talk to the app over loopback; trusting it lets a test simulate
   // different client IPs with X-Forwarded-For.
   process.env.TRUST_PROXY = 'loopback';
+  // Codes are read from the fake providers; never echoed to stdout.
+  process.env.OTP_DEV_ECHO = 'false';
+  process.env.SMS_PROVIDER = 'fake';
+  delete process.env.EMAIL_FROM;
+  delete process.env.SES_REGION;
 }

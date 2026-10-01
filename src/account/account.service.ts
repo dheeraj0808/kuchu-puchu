@@ -4,7 +4,6 @@ import type { Sequelize } from 'sequelize-typescript';
 
 import type { AuthenticatedUser } from '../auth/interfaces/authenticated-user.interface';
 import { IdentifierType } from '../auth/models/otp-verification.model';
-import { OtpService } from '../auth/services/otp.service';
 import { SessionRevokeReason, SessionService } from '../auth/services/session.service';
 import { AppException, ErrorCode } from '../common/exceptions/app.exception';
 import type { RequestContext } from '../common/utils/request-context';
@@ -21,7 +20,6 @@ export class AccountService {
     private readonly users: UsersService,
     private readonly sessions: SessionService,
     private readonly profiles: ProfilesService,
-    private readonly otp: OtpService,
     private readonly securityEvents: SecurityEventsService,
     @InjectConnection() private readonly sequelize: Sequelize,
     private readonly preferences: PreferencesService,
@@ -49,7 +47,7 @@ export class AccountService {
 
       const revokedSessions = await this.sessions.revokeAllForUser(
         user.id,
-        SessionRevokeReason.AccountDeleted,
+        SessionRevokeReason.Deleted,
         transaction,
       );
       const preferencesDeleted = (await this.preferences.deleteForUser(user.id, transaction)) > 0;

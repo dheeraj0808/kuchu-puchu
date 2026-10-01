@@ -3,7 +3,6 @@ import 'reflect-metadata';
 import type { Sequelize } from 'sequelize-typescript';
 
 import { IdentifierType } from '../auth/models/otp-verification.model';
-import type { OtpService } from '../auth/services/otp.service';
 import type { SessionService } from '../auth/services/session.service';
 import { fakeSecurityEvents, fakeUser } from '../auth/testing/fakes';
 import { AppException } from '../common/exceptions/app.exception';
@@ -58,7 +57,6 @@ function setup(user = fakeUser({ email: 'jane@example.com', phone: '+91987654321
     users as unknown as UsersService,
     sessions as unknown as SessionService,
     profiles as unknown as ProfilesService,
-    otp as unknown as OtpService,
     events,
     sequelize as unknown as Sequelize,
     preferences as unknown as PreferencesService,
@@ -79,7 +77,7 @@ describe('AccountService.deleteAccount', () => {
 
     expect(sequelize.transaction).toHaveBeenCalledTimes(1);
     expect(users.findByIdForUpdate).toHaveBeenCalledWith(user.id, tx);
-    expect(sessions.revokeAllForUser).toHaveBeenCalledWith(user.id, 'account_deleted', tx);
+    expect(sessions.revokeAllForUser).toHaveBeenCalledWith(user.id, 'deleted', tx);
     expect(preferences.deleteForUser).toHaveBeenCalledWith(user.id, tx);
     expect(profiles.deactivateForAccountDeletion).toHaveBeenCalledWith(user.id, tx);
     expect(users.anonymizeAndSoftDelete).toHaveBeenCalledWith(user, tx);
@@ -150,7 +148,6 @@ describe('AccountService.deleteAccount', () => {
       } as unknown as UsersService,
       { revokeAllForUser: jest.fn().mockResolvedValue(0) } as unknown as SessionService,
       realProfiles,
-      { hashIdentifier: jest.fn(() => 'h') } as unknown as OtpService,
       fakeSecurityEvents(),
       sequelize as unknown as Sequelize,
       preferences as unknown as PreferencesService,

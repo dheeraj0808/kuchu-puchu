@@ -60,14 +60,14 @@ describe('Throttler on Redis (two instances)', () => {
     expect(appA.get(REDIS_CLIENT)).not.toBe(appB.get(REDIS_CLIENT));
   });
 
-  it('a per-route limit (request-otp: 5/min per IP) is shared across instances', async () => {
+  it('a per-route limit (otp/request: 5/min per IP) is shared across instances', async () => {
     const ip = '198.51.100.1';
     for (let i = 0; i < 5; i++) {
-      const res = await request(serverFor(i)).post('/api/v1/auth/request-otp').set('X-Forwarded-For', ip).send({});
+      const res = await request(serverFor(i)).post('/api/v1/auth/otp/request').set('X-Forwarded-For', ip).send({});
       expect(res.status).toBe(400); // counted, then rejected by validation
     }
     for (const server of servers) {
-      const res = await request(server).post('/api/v1/auth/request-otp').set('X-Forwarded-For', ip).send({});
+      const res = await request(server).post('/api/v1/auth/otp/request').set('X-Forwarded-For', ip).send({});
       expect(res.status).toBe(429);
       expect(res.body).toMatchObject({ success: false, code: 'TOO_MANY_REQUESTS' });
       expect(res.body.details.retryAfterSeconds).toBeGreaterThan(0);

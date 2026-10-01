@@ -8,9 +8,6 @@ import type { Sequelize } from 'sequelize-typescript';
 import request from 'supertest';
 
 import { IdentifierType } from '../../src/auth/models/otp-verification.model';
-import { OtpDeliveryService } from '../../src/auth/services/otp-delivery.service';
-import { SessionService } from '../../src/auth/services/session.service';
-import { TokenService } from '../../src/auth/services/token.service';
 import { SessionStateService } from '../../src/auth/session-state/session-state.service';
 import type { SecurityConfig } from '../../src/config/security.config';
 import {
@@ -20,10 +17,11 @@ import {
 import * as securityMigration from '../../src/database/migrations/20261005000001-security-events-bigint-actor';
 import { SecurityRetentionJob } from '../../src/security/security-retention.job';
 import { SecurityEventsService } from '../../src/security/security-events.service';
-import { UserRole, UserStatus } from '../../src/users/models/user.model';
+import { UserStatus } from '../../src/users/models/user.model';
 import { RevokeSessionsHandler } from '../../src/users/revoke-sessions.handler';
 import { UsersService } from '../../src/users/users.service';
 import { createTestApp } from '../support/test-app';
+import { login as apiLogin, newDevice, openSession as openDirect } from '../support/auth-helpers';
 import { clearTestKeys } from '../support/test-redis';
 
 interface Row {
@@ -60,33 +58,9 @@ describe('M05 Security audit (MySQL + Redis)', () => {
       { replacements: { userId }, type: QueryTypes.SELECT },
     );
 
-  /** Signs in through the real API, capturing the OTP at the delivery adapter. */
-  async function login(
-    email: string,
-    from = ip(),
-  ): Promise<{ accessToken: string; refreshToken: string; userId: string }> {
-    let code = '';
-    jest
-      .spyOn(app.get(OtpDeliveryService), 'send')
-      .mockImplementation(async (_t, _i, otp) => {
-        code = otp;
-      });
-    const server = app.getHttpServer();
-    await request(server)
-      .post('/api/v1/auth/request-otp')
-      .set('X-Forwarded-For', from)
-      .send({ identifierType: 'email', identifier: email })
-      .expect(200);
-    const res = await request(server)
-      .post('/api/v1/auth/verify-otp')
-      .set('X-Forwarded-For', from)
-      .send({ identifierType: 'email', identifier: email, otp: code })
-      .expect(200);
-    return {
-      accessToken: res.body.data.accessToken,
-      refreshToken: res.body.data.refreshToken,
-      userId: res.body.data.user.id,
-    };
+  /** Signs in through the real API; the code is read from the fake provider. */
+  async function login(email: string, from = ip()): Promise<{ accessToken: string; refreshToken: string; userId: string }> {
+    return apiLogin(app, email, { ip: from });
   }
 
   it('the table matches the spec (BIGINT id, actor_user_id, user_agent 255, indexes)', async () => {
@@ -119,14 +93,11 @@ describe('M05 Security audit (MySQL + Redis)', () => {
     jest
       .spyOn(SecurityEvent, 'create')
       .mockRejectedValue(new ConnectionError(new Error('ECONNREFUSED')));
-    jest
-      .spyOn(app.get(OtpDeliveryService), 'send')
-      .mockResolvedValue(undefined);
     const res = await request(app.getHttpServer())
-      .post('/api/v1/auth/request-otp')
+      .post('/api/v1/auth/otp/request')
       .set('X-Forwarded-For', ip())
       .send({
-        identifierType: 'email',
+        channel: 'email',
         identifier: `down.${randomUUID().slice(0, 8)}@example.com`,
       });
     expect(res.status).toBe(200);
@@ -180,9 +151,9 @@ describe('M05 Security audit (MySQL + Redis)', () => {
     const first = await login(email, from);
 
     await request(server)
-      .post('/api/v1/auth/verify-otp')
+      .post('/api/v1/auth/otp/verify')
       .set('X-Forwarded-For', from)
-      .send({ identifierType: 'email', identifier: email, otp: '000000' })
+      .send({ channel: 'email', identifier: email, otp: '000000', ...newDevice() })
       .expect(401);
     const refreshed = await request(server)
       .post('/api/v1/auth/refresh')
@@ -194,17 +165,7 @@ describe('M05 Security audit (MySQL + Redis)', () => {
       .set('X-Forwarded-For', from)
       .send({ refreshToken: refreshed.body.data.refreshToken })
       .expect(200);
-    const openSession = async (): Promise<{ accessToken: string }> => {
-      const { session } = await app
-        .get(SessionService)
-        .create(first.userId, {}, { ipAddress: from, userAgent: 'jest' });
-      const signed = await app.get(TokenService).signAccessToken({
-        sub: first.userId,
-        sid: session.id,
-        role: UserRole.User,
-      });
-      return { accessToken: signed.token };
-    };
+    const openSession = (): Promise<{ accessToken: string }> => openDirect(app, first.userId);
     // More OTPs for the same email would hit the resend cooldown; open these sessions directly.
     const second = await openSession();
     await request(server)

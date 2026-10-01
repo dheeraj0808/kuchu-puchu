@@ -1,9 +1,7 @@
-import type { UserRole } from '../../users/models/user.model';
-
+/** Access-token claims (guide M06): {sub, sid, iss, aud} plus iat/exp. No role. */
 export interface JwtPayload {
   sub: string;
   sid: string;
-  role: UserRole;
   iat?: number;
   exp?: number;
   iss?: string;

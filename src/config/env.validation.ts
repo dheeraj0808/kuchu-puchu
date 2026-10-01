@@ -135,8 +135,17 @@ export class EnvironmentVariables {
   @IsString()
   JWT_ACCESS_TTL: string = '15m';
 
-  @IsString()
-  JWT_REFRESH_EXPIRES_IN: string = '7d';
+  /** Sliding session lifetime: each refresh moves expires_at to now + this (guide M06). */
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  SESSION_SLIDING_DAYS: number = 30;
+
+  /** Hard session lifetime from sign-in, never extended (guide M06). */
+  @IsInt()
+  @Min(1)
+  @Max(365)
+  SESSION_MAX_DAYS: number = 90;
 
   @IsString()
   JWT_ISSUER: string = 'kuchu-puchu';
@@ -171,9 +180,44 @@ export class EnvironmentVariables {
   @Min(1)
   OTP_MAX_PER_HOUR: number = 5;
 
+  /** Per request IP; generous because of mobile carrier NAT (guide M06). */
+  @IsInt()
+  @Min(1)
+  OTP_MAX_PER_IP_PER_HOUR: number = 20;
+
+  /** Comma-separated calling codes that may receive SMS codes, e.g. "+91,+971". */
+  @Matches(/^\+[1-9]\d{0,3}(,\+[1-9]\d{0,3})*$/, {
+    message: 'OTP_SMS_ALLOWED_COUNTRIES must be comma-separated calling codes such as +91',
+  })
+  OTP_SMS_ALLOWED_COUNTRIES: string = '+91';
+
   @IsBoolean()
   @Transform(toBool)
   OTP_DEV_ECHO: boolean = false;
+
+  // SMS / Email (guide M06, Appendix D)
+  /** Only "fake" exists until the DLT-registered provider is added; production refuses it (checked below). */
+  @IsOptional()
+  @Matches(/^[a-z0-9_-]{1,32}$/, { message: 'SMS_PROVIDER must be a provider name such as fake' })
+  SMS_PROVIDER?: string;
+
+  @IsOptional() @IsString() SMS_API_KEY?: string;
+  @IsOptional() @IsString() SMS_SENDER_ID?: string;
+  @IsOptional() @IsString() SMS_DLT_TEMPLATE_ID?: string;
+
+  /** SMS codes sent per IST calendar day across all users; alert at 80 %, stop at 100 %. */
+  @IsInt()
+  @Min(1)
+  SMS_DAILY_BUDGET: number = 10_000;
+
+  /** Sender for OTP emails. With SES_REGION it selects SES; both are required in production. */
+  @IsOptional()
+  @Matches(/^[^\s@]+@[^\s@]+\.[^\s@]+$/, { message: 'EMAIL_FROM must be an email address' })
+  EMAIL_FROM?: string;
+
+  @IsOptional()
+  @Matches(/^[a-z]{2}(-[a-z]+)+-\d$/, { message: 'SES_REGION must be an AWS region such as ap-south-1' })
+  SES_REGION?: string;
 
   // Profile / preferences
   @IsInt()
@@ -313,6 +357,15 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
   }
   if (isProd && !validated.ALERT_WEBHOOK_URL) {
     throw new Error('ALERT_WEBHOOK_URL must be set in production');
+  }
+  if (isProd && (!validated.SMS_PROVIDER || validated.SMS_PROVIDER === 'fake')) {
+    throw new Error('SMS_PROVIDER must name a real SMS provider in production (not unset or "fake")');
+  }
+  if (isProd && (!validated.EMAIL_FROM || !validated.SES_REGION)) {
+    throw new Error('EMAIL_FROM and SES_REGION must be set in production');
+  }
+  if (validated.SESSION_SLIDING_DAYS > validated.SESSION_MAX_DAYS) {
+    throw new Error('SESSION_SLIDING_DAYS must not exceed SESSION_MAX_DAYS');
   }
   if (validated.OUTBOX_RELAY_TIME_BUDGET_MS >= validated.OUTBOX_RELAY_INTERVAL_MS) {
     throw new Error('OUTBOX_RELAY_TIME_BUDGET_MS must be below OUTBOX_RELAY_INTERVAL_MS');

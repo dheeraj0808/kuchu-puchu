@@ -1,36 +1,64 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/sequelize';
-import { literal, Op, type Transaction, type WhereOptions } from 'sequelize';
+import type { Redis } from 'ioredis';
+import { literal, Op, type WhereOptions } from 'sequelize';
 
 import { AppException, ErrorCode } from '../../common/exceptions/app.exception';
 import { hmacSha256, timingSafeEqualHex } from '../../common/utils/hmac';
-import type { RequestContext } from '../../common/utils/request-context';
 import type { OtpConfig } from '../../config/otp.config';
-import { IdentifierType, OtpVerification } from '../models/otp-verification.model';
+import { REDIS_CLIENT } from '../../infra/redis/redis.module';
+import { redisKey } from '../../infra/redis/redis-keys';
+import { type IdentifierType, type OtpChannel, type OtpPurpose, OtpVerification } from '../models/otp-verification.model';
 import { generateNumericOtp } from '../utils/crypto.util';
 
-/** Generic per-IP hourly cap on OTP issuance (defence against enumeration/SMS pumping). */
-export const OTP_MAX_REQUESTS_PER_IP_PER_HOUR = 20;
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
 export type OtpFailureReason = 'not_found' | 'attempts_exceeded' | 'mismatch';
 
 export type OtpVerifyResult =
   | { ok: true; record: OtpVerification }
-  | { ok: false; reason: OtpFailureReason; attemptsRemaining?: number };
+  | { ok: false; reason: OtpFailureReason };
 
-export interface IssuedOtp {
-  /** Plaintext OTP — in memory only, handed to the delivery provider. */
-  otp: string;
-  record: OtpVerification;
+export interface IssueOtpInput {
+  identifierHash: string;
+  channel: OtpChannel;
+  purpose: OtpPurpose;
+  requestIp: string;
 }
 
+export interface IssuedOtp {
+  /** Plaintext code: in memory only, handed to the delivery adapter. */
+  otp: string;
+  record: OtpVerification;
+  /** Frees the cooldown again, e.g. when the code could not be delivered. */
+  releaseCooldown: () => Promise<void>;
+}
+
+export interface VerifyOtpInput {
+  /** The code may belong to any of these identifiers (step-up: the account's phone or email). */
+  identifierHashes: string[];
+  purpose: OtpPurpose;
+  /** Login codes must come from the channel they were requested on. */
+  channel?: OtpChannel;
+  otp: string;
+}
+
+export function otpCooldownKey(identifierHash: string): string {
+  return redisKey('otp-cooldown', identifierHash);
+}
+
+/**
+ * Codes (guide M06): 6 digits from a CSPRNG, stored as an HMAC, valid
+ * OTP_TTL_SECONDS, OTP_MAX_ATTEMPTS tries, one active code per identifier,
+ * consumed once. Issuance is gated by an atomic per-identifier cooldown in
+ * Redis, then by hourly caps per identifier and per IP counted in MySQL.
+ */
 @Injectable()
 export class OtpService {
   constructor(
-    @InjectModel(OtpVerification)
-    private readonly otpModel: typeof OtpVerification,
+    @InjectModel(OtpVerification) private readonly otpModel: typeof OtpVerification,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly config: ConfigService,
   ) {}
 
@@ -38,10 +66,7 @@ export class OtpService {
     return this.config.getOrThrow<OtpConfig>('otp');
   }
 
-  private now(): Date {
-    return new Date();
-  }
-
+  /** HMAC-SHA256(OTP_HASH_SECRET, "<type>:<normalised>"); the identifier is never stored. */
   hashIdentifier(type: IdentifierType, normalizedIdentifier: string): string {
     return hmacSha256(this.cfg.hashSecret, `${type}:${normalizedIdentifier}`);
   }
@@ -58,111 +83,92 @@ export class OtpService {
     return this.cfg.resendCooldownSeconds;
   }
 
-  async issue(
-    type: IdentifierType,
-    identifier: string,
-    userId: string | null,
-    ctx: RequestContext,
-    transaction?: Transaction,
-  ): Promise<IssuedOtp> {
+  /**
+   * Issues a code. Throws 429 OTP_COOLDOWN or TOO_MANY_REQUESTS with
+   * details.retryAfterSeconds. The cooldown is one SET NX per identifier, so
+   * parallel requests for the same identifier cannot both pass it; that is
+   * also what keeps "one active code per identifier" true under races.
+   */
+  async issue(input: IssueOtpInput): Promise<IssuedOtp> {
     const cfg = this.cfg;
-    const now = this.now();
-    const identifierHash = this.hashIdentifier(type, identifier);
+    const { identifierHash } = input;
+    const cooldownKey = otpCooldownKey(identifierHash);
+    const releaseCooldown = async (): Promise<void> => {
+      await this.redis.del(cooldownKey).catch(() => undefined);
+    };
 
-    const latest = await this.otpModel.findOne({
-      where: { identifierHash, identifierType: type },
-      order: [['createdAt', 'DESC']],
-      transaction,
-    });
-    if (latest && cfg.resendCooldownSeconds > 0) {
-      const elapsedMs = now.getTime() - latest.createdAt.getTime();
-      const cooldownMs = cfg.resendCooldownSeconds * 1000;
-      if (elapsedMs < cooldownMs) {
-        const retryAfterSeconds = Math.max(1, Math.ceil((cooldownMs - elapsedMs) / 1000));
+    if (cfg.resendCooldownSeconds > 0) {
+      const set = await this.redis.set(cooldownKey, '1', 'EX', cfg.resendCooldownSeconds, 'NX');
+      if (set !== 'OK') {
+        const ttlMs = await this.redis.pttl(cooldownKey);
+        const retryAfterSeconds = Math.max(1, Math.ceil((ttlMs > 0 ? ttlMs : cfg.resendCooldownSeconds * 1000) / 1000));
         throw new AppException(ErrorCode.OtpCooldown, { retryAfterSeconds });
       }
     }
 
+    const now = new Date();
     const hourAgo = new Date(now.getTime() - ONE_HOUR_MS);
-    const identifierWhere = { identifierHash, identifierType: type, createdAt: { [Op.gt]: hourAgo } };
-    const identifierCount = await this.otpModel.count({ where: identifierWhere, transaction });
-    if (identifierCount >= cfg.maxRequestsPerHour) {
-      throw await this.tooManyRequests(identifierWhere, now, transaction);
+    const identifierWhere = { identifierHash, createdAt: { [Op.gt]: hourAgo } };
+    if ((await this.otpModel.count({ where: identifierWhere })) >= cfg.maxRequestsPerHour) {
+      throw await this.tooManyRequests(identifierWhere, now);
+    }
+    const ipWhere = { requestIp: input.requestIp, createdAt: { [Op.gt]: hourAgo } };
+    if ((await this.otpModel.count({ where: ipWhere })) >= cfg.maxRequestsPerIpPerHour) {
+      throw await this.tooManyRequests(ipWhere, now);
     }
 
-    if (ctx.ipAddress) {
-      const ipWhere = { requestIp: ctx.ipAddress, createdAt: { [Op.gt]: hourAgo } };
-      const ipCount = await this.otpModel.count({ where: ipWhere, transaction });
-      if (ipCount >= OTP_MAX_REQUESTS_PER_IP_PER_HOUR) {
-        throw await this.tooManyRequests(ipWhere, now, transaction);
-      }
-    }
-
-    // Only one active code per identifier at any time.
+    // One active code per identifier: a new code (either purpose) expires the older ones.
     await this.otpModel.update(
       { expiresAt: now },
-      {
-        where: {
-          identifierHash,
-          identifierType: type,
-          consumedAt: null,
-          expiresAt: { [Op.gt]: now },
-        },
-        transaction,
-      },
+      { where: { identifierHash, consumedAt: null, expiresAt: { [Op.gt]: now } } },
     );
 
     const otp = generateNumericOtp(cfg.length);
-    const record = await this.otpModel.create(
-      {
-        userId,
-        identifierHash,
-        identifierType: type,
-        otpHash: this.hashOtp(identifierHash, otp),
-        expiresAt: new Date(now.getTime() + cfg.ttlSeconds * 1000),
-        attempts: 0,
-        maxAttempts: cfg.maxAttempts,
-        consumedAt: null,
-        requestIp: ctx.ipAddress,
-      },
-      { transaction },
-    );
-    return { otp, record };
+    const record = await this.otpModel.create({
+      identifierHash,
+      channel: input.channel,
+      purpose: input.purpose,
+      otpHash: this.hashOtp(identifierHash, otp),
+      attempts: 0,
+      expiresAt: new Date(now.getTime() + cfg.ttlSeconds * 1000),
+      consumedAt: null,
+      requestIp: input.requestIp,
+    });
+    return { otp, record, releaseCooldown };
   }
 
-  async verify(
-    type: IdentifierType,
-    identifier: string,
-    otp: string,
-    transaction?: Transaction,
-  ): Promise<OtpVerifyResult> {
-    const now = this.now();
-    const identifierHash = this.hashIdentifier(type, identifier);
-    const candidateHash = this.hashOtp(identifierHash, otp);
-
-    const record = await this.otpModel.findOne({
-      where: {
-        identifierHash,
-        identifierType: type,
-        consumedAt: null,
-        expiresAt: { [Op.gt]: now },
-      },
-      order: [['createdAt', 'DESC']],
-      transaction,
-    });
+  /**
+   * Checks a code against the newest active one. Each try first reserves an
+   * attempt (attempts = attempts + 1 WHERE attempts < max), so parallel
+   * guesses cannot exceed the limit; the code is then consumed by a
+   * conditional update, so only one of several parallel correct verifies wins.
+   * Callers answer every failure the same way (401 OTP_INVALID).
+   */
+  async verify(input: VerifyOtpInput): Promise<OtpVerifyResult> {
+    const maxAttempts = this.cfg.maxAttempts;
+    const now = new Date();
+    const record =
+      input.identifierHashes.length === 0
+        ? null
+        : await this.otpModel.findOne({
+            where: {
+              identifierHash: { [Op.in]: input.identifierHashes },
+              purpose: input.purpose,
+              ...(input.channel ? { channel: input.channel } : {}),
+              consumedAt: null,
+              expiresAt: { [Op.gt]: now },
+            },
+            order: [['createdAt', 'DESC']],
+          });
 
     if (!record) {
-      // Timing parity with the found path.
-      timingSafeEqualHex(candidateHash, this.hashOtp(identifierHash, 'dummy'));
+      // Same work as the found path.
+      timingSafeEqualHex(this.hashOtp('-', input.otp), this.hashOtp('-', 'dummy'));
       return { ok: false, reason: 'not_found' };
     }
+    const candidate = this.hashOtp(record.identifierHash, input.otp);
+    if (record.attempts >= maxAttempts) return { ok: false, reason: 'attempts_exceeded' };
 
-    const maxAttempts = Math.min(record.maxAttempts, this.cfg.maxAttempts);
-    if (record.attempts >= maxAttempts) {
-      return { ok: false, reason: 'attempts_exceeded', attemptsRemaining: 0 };
-    }
-
-    // Reserve an attempt atomically before comparing — defeats parallel brute force.
     const [reserved] = await this.otpModel.update(
       { attempts: literal('attempts + 1') },
       {
@@ -172,48 +178,26 @@ export class OtpService {
           attempts: { [Op.lt]: maxAttempts },
           expiresAt: { [Op.gt]: now },
         },
-        transaction,
       },
     );
-    if (reserved === 0) {
-      return { ok: false, reason: 'attempts_exceeded', attemptsRemaining: 0 };
+    if (reserved === 0) return { ok: false, reason: 'attempts_exceeded' };
+
+    if (!timingSafeEqualHex(candidate, record.otpHash)) {
+      return { ok: false, reason: record.attempts + 1 >= maxAttempts ? 'attempts_exceeded' : 'mismatch' };
     }
 
-    const attemptsUsed = record.attempts + 1;
-    if (!timingSafeEqualHex(candidateHash, record.otpHash)) {
-      const attemptsRemaining = Math.max(0, maxAttempts - attemptsUsed);
-      return {
-        ok: false,
-        reason: attemptsRemaining === 0 ? 'attempts_exceeded' : 'mismatch',
-        attemptsRemaining,
-      };
-    }
-
-    const consumedAt = this.now();
-    const [consumed] = await this.otpModel.update(
-      { consumedAt },
-      { where: { id: record.id, consumedAt: null }, transaction },
-    );
-    if (consumed === 0) {
-      // Lost a race with a concurrent verification of the same code.
-      return { ok: false, reason: 'not_found' };
-    }
+    const consumedAt = new Date();
+    const [consumed] = await this.otpModel.update({ consumedAt }, { where: { id: record.id, consumedAt: null } });
+    // 0: a parallel verify of the same code consumed it first.
+    if (consumed === 0) return { ok: false, reason: 'not_found' };
     record.consumedAt = consumedAt;
-    record.attempts = attemptsUsed;
+    record.attempts += 1;
     return { ok: true, record };
   }
 
-  async linkUser(recordId: string, userId: string, transaction?: Transaction): Promise<void> {
-    await this.otpModel.update({ userId }, { where: { id: recordId }, transaction });
-  }
-
   /** The window frees a slot when its oldest code turns one hour old. */
-  private async tooManyRequests(
-    where: WhereOptions<OtpVerification>,
-    now: Date,
-    transaction?: Transaction,
-  ): Promise<AppException> {
-    const oldest = await this.otpModel.min<Date | null, OtpVerification>('createdAt', { where, transaction });
+  private async tooManyRequests(where: WhereOptions<OtpVerification>, now: Date): Promise<AppException> {
+    const oldest = await this.otpModel.min<Date | null, OtpVerification>('createdAt', { where });
     const freesAt = oldest ? new Date(oldest).getTime() + ONE_HOUR_MS : now.getTime() + ONE_HOUR_MS;
     const retryAfterSeconds = Math.max(1, Math.ceil((freesAt - now.getTime()) / 1000));
     return new AppException(ErrorCode.TooManyRequests, { retryAfterSeconds });

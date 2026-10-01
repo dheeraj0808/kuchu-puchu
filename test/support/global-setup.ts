@@ -1,4 +1,6 @@
 import { execFileSync } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 
 import { startTestMysql } from './test-mysql';
@@ -23,9 +25,15 @@ export default async function globalSetup(): Promise<void> {
   await clearTestKeys(redis.url);
   console.log(`\n[test] Redis: ${redis.source} · MySQL: ${mysql.source}, database ${process.env.DB_NAME}`);
 
+  // log-scan.ts appends one line per test file; global-teardown.ts prints the total.
+  process.env.TEST_LOG_SCAN_REPORT = resolve(tmpdir(), `kp-log-scan-${process.pid}.jsonl`);
+  writeFileSync(process.env.TEST_LOG_SCAN_REPORT, '');
+
   const root = resolve(__dirname, '../..');
   const tsNode = resolve(root, 'node_modules/.bin/ts-node');
   for (const command of ['db:create', 'up', 'seed']) {
-    execFileSync(tsNode, ['src/database/migrate.ts', command], { cwd: root, env: process.env, stdio: 'pipe' });
+    const out = execFileSync(tsNode, ['src/database/migrate.ts', command], { cwd: root, env: process.env, stdio: 'pipe' });
+    // Data-changing migrations print what they did (e.g. "[M06] sessions: deleted 545 rows").
+    for (const line of out.toString().split('\n')) if (line.startsWith('[M')) console.log(`[test] ${line}`);
   }
 }

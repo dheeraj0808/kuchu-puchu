@@ -1,11 +1,9 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Sequelize } from 'sequelize-typescript';
-import { Test, TestingModule } from '@nestjs/testing';
 import request from 'supertest';
 import { App } from 'supertest/types';
 
-import { AppModule } from './../src/app.module';
-import { configureApp } from './../src/app.setup';
+import { createTestApp } from './support/test-app';
 
 describe('App (e2e)', () => {
   let app: NestExpressApplication;
@@ -13,12 +11,7 @@ describe('App (e2e)', () => {
 
   beforeAll(async () => {
     process.env.SWAGGER_ENABLED = 'true';
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    app = moduleFixture.createNestApplication<NestExpressApplication>({ logger: false });
-    await configureApp(app);
+    app = await createTestApp();
     server = app.getHttpServer() as App;
   });
 
@@ -98,7 +91,7 @@ describe('App (e2e)', () => {
 
   it('returns VALIDATION_ERROR with details.errors for a bad body', async () => {
     const res = await request(server)
-      .post('/api/v1/auth/request-otp')
+      .post('/api/v1/auth/otp/request')
       .set('X-Request-Id', 'e2e-validation-1')
       .send({ unknownField: true })
       .expect(400);
@@ -109,10 +102,10 @@ describe('App (e2e)', () => {
   });
 
   it('answers 429 with details.retryAfterSeconds when a route limit is hit', async () => {
-    // POST /auth/request-otp allows 5 per minute per IP; the throttler runs before validation.
+    // POST /auth/otp/request allows 5 per minute per IP; the throttler runs before validation.
     let last: request.Response | undefined;
     for (let i = 0; i < 7; i++) {
-      last = await request(server).post('/api/v1/auth/request-otp').send({});
+      last = await request(server).post('/api/v1/auth/otp/request').send({});
       if (last.status === 429) break;
     }
     expect(last?.status).toBe(429);
@@ -125,5 +118,32 @@ describe('App (e2e)', () => {
     const paths = Object.keys((res.body as { paths: Record<string, unknown> }).paths);
     expect(paths.length).toBeGreaterThan(0);
     expect(paths.every((p) => p.startsWith('/api/v1/'))).toBe(true);
+  });
+
+  it('M06: exactly the 10 auth endpoints are documented; the old routes are gone', async () => {
+    const res = await request(server).get('/api/docs-json').expect(200);
+    const paths = (res.body as { paths: Record<string, Record<string, unknown>> }).paths;
+    const auth = Object.entries(paths)
+      .filter(([p]) => p.startsWith('/api/v1/auth/'))
+      .flatMap(([p, ops]) => Object.keys(ops).map((m) => `${m.toUpperCase()} ${p.replace('/api/v1', '')}`))
+      .sort();
+    expect(auth).toEqual(
+      [
+        'POST /auth/otp/request',
+        'POST /auth/otp/verify',
+        'POST /auth/refresh',
+        'POST /auth/logout',
+        'POST /auth/logout-all',
+        'GET /auth/me',
+        'GET /auth/sessions',
+        'DELETE /auth/sessions/{sessionId}',
+        'POST /auth/reauth/request',
+        'POST /auth/reauth/verify',
+      ].sort(),
+    );
+    for (const old of ['/api/v1/auth/request-otp', '/api/v1/auth/verify-otp']) {
+      const r = await request(server).post(old).send({});
+      expect(r.status).toBe(404);
+    }
   });
 });

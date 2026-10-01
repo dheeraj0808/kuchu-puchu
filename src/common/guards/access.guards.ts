@@ -6,7 +6,7 @@ import type { AuthenticatedUser } from '../../auth/interfaces/authenticated-user
 import type { UserRole } from '../../users/models/user.model';
 import { EntitlementsService } from '../entitlements/entitlements.service';
 import { AppException, ErrorCode } from '../exceptions/app.exception';
-import { OnboardingStatusService } from '../onboarding/onboarding-status.service';
+import { OnboardingService } from '../onboarding/onboarding.service';
 import { ENTITLEMENT_KEY, ROLES_KEY, type RequiredEntitlement } from './access.decorators';
 
 /** The principal JwtAuthGuard attached. These guards never read the token themselves. */
@@ -39,16 +39,17 @@ export class RolesGuard implements CanActivate {
 
 /**
  * Most dating features need an approved live selfie (guide: "Verified user").
- * Otherwise 403 ONBOARDING_INCOMPLETE with details.nextStep, so the app can
- * send the user to the right screen. Built in M01, applied to routes after M11.
+ * Otherwise 403 ONBOARDING_INCOMPLETE with details.nextStep from
+ * OnboardingService, so the app can send the user to the right screen.
+ * Applied to routes once M11 exists.
  */
 @Injectable()
 export class VerifiedUserGuard implements CanActivate {
-  constructor(private readonly onboarding: OnboardingStatusService) {}
+  constructor(private readonly onboarding: OnboardingService) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const { userId } = principal(context);
-    const status = await this.onboarding.getStatus(userId);
+    const status = await this.onboarding.status(userId);
     if (!status.selfieApproved) {
       throw new AppException(ErrorCode.OnboardingIncomplete, { nextStep: status.nextStep });
     }

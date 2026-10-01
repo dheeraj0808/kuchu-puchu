@@ -9,10 +9,7 @@ import request from 'supertest';
 
 import { IdentifierType } from '../../src/auth/models/otp-verification.model';
 import { AuthService } from '../../src/auth/auth.service';
-import { OtpDeliveryService } from '../../src/auth/services/otp-delivery.service';
 import { OtpService } from '../../src/auth/services/otp.service';
-import { SessionService } from '../../src/auth/services/session.service';
-import { TokenService } from '../../src/auth/services/token.service';
 import {
   SessionStateService,
   sessionCacheKey,
@@ -20,17 +17,13 @@ import {
 import * as usersMigration from '../../src/database/migrations/20261004000001-users-status-and-activity';
 import { REDIS_CLIENT } from '../../src/infra/redis/redis.module';
 import { SecurityEventsService } from '../../src/security/security-events.service';
-import { User, UserRole, UserStatus } from '../../src/users/models/user.model';
+import { User, UserStatus } from '../../src/users/models/user.model';
 import { RevokeSessionsHandler } from '../../src/users/revoke-sessions.handler';
 import { UsersService } from '../../src/users/users.service';
 import { createTestApp } from '../support/test-app';
+import { ctx, indianMobile, lastCode, newDevice, openSession } from '../support/auth-helpers';
 import { waitUntil } from '../support/outbox-harness';
 
-const ctx = { ipAddress: '203.0.113.9', userAgent: 'jest' };
-
-/** A random valid Indian mobile number, e.g. +9198xxxxxxxx. */
-const indianMobile = (): string =>
-  `+9198${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
 
 describe('M04 Users (MySQL + Redis)', () => {
   let app: NestExpressApplication;
@@ -59,11 +52,8 @@ describe('M04 Users (MySQL + Redis)', () => {
       IdentifierType.Phone,
       indianMobile(),
     );
-    const { session } = await app.get(SessionService).create(user.id, {}, ctx);
-    const { token } = await app
-      .get(TokenService)
-      .signAccessToken({ sub: user.id, sid: session.id, role: UserRole.User });
-    return { userId: user.id, sessionId: session.id, token };
+    const s = await openSession(app, user.id);
+    return { userId: user.id, sessionId: s.sessionId, token: s.accessToken };
   }
 
   const me = (token: string): request.Test =>
@@ -117,9 +107,9 @@ describe('M04 Users (MySQL + Redis)', () => {
 
   it('an invalid phone is a 400 VALIDATION_ERROR at the API', async () => {
     const res = await request(app.getHttpServer())
-      .post('/api/v1/auth/request-otp')
+      .post('/api/v1/auth/otp/request')
       .set('X-Forwarded-For', '198.51.100.77')
-      .send({ identifierType: 'phone', identifier: '+910000000000' });
+      .send({ channel: 'sms', identifier: '+910000000000' });
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('VALIDATION_ERROR');
   });
@@ -136,15 +126,15 @@ describe('M04 Users (MySQL + Redis)', () => {
     verifySpy.mockImplementation(
       async () => ({ ok: true, record: { id: randomUUID() } }) as never,
     );
-    jest.spyOn(otp, 'linkUser').mockResolvedValue(undefined as never);
     try {
       const results = await Promise.allSettled(
         Array.from({ length: 10 }, (_, i) =>
           auth.verifyOtp(
             {
-              identifierType: IdentifierType.Phone,
+              channel: 'sms',
               identifier: i % 2 ? local : phone,
               otp: '123456',
+              ...newDevice(),
             } as never,
             ctx,
           ),
@@ -202,7 +192,7 @@ describe('M04 Users (MySQL + Redis)', () => {
 
   it('setStatus → user.status_changed in the outbox → handler revokes the sessions; running it twice changes nothing', async () => {
     const a = await signedIn();
-    const second = await app.get(SessionService).create(a.userId, {}, ctx);
+    const second = await openSession(app, a.userId);
     await users.setStatus(a.userId, UserStatus.Banned, 'test.ban');
 
     const [event] = await sequelize.query<{
@@ -256,7 +246,7 @@ describe('M04 Users (MySQL + Redis)', () => {
     expect(
       await redis.exists(
         sessionCacheKey(a.sessionId),
-        sessionCacheKey(second.session.id),
+        sessionCacheKey(second.sessionId),
       ),
     ).toBe(0);
 
@@ -329,22 +319,18 @@ describe('M04 Users (MySQL + Redis)', () => {
        VALUES (:id, :phone, 'deactivated', 'user', NOW(3), NOW(3), NOW(3))`,
       { replacements: { id: deletedId, phone } },
     );
-    let code = '';
-    const send = jest.spyOn(app.get(OtpDeliveryService), 'send').mockImplementation(async (_t, _i, otp) => {
-      code = otp;
-    });
     try {
       const server = app.getHttpServer();
       const from = '198.51.100.91';
       await request(server)
-        .post('/api/v1/auth/request-otp')
+        .post('/api/v1/auth/otp/request')
         .set('X-Forwarded-For', from)
-        .send({ identifierType: 'phone', identifier: phone })
+        .send({ channel: 'sms', identifier: phone })
         .expect(200);
       const res = await request(server)
-        .post('/api/v1/auth/verify-otp')
+        .post('/api/v1/auth/otp/verify')
         .set('X-Forwarded-For', from)
-        .send({ identifierType: 'phone', identifier: phone, otp: code });
+        .send({ channel: 'sms', identifier: phone, otp: lastCode(app, phone), ...newDevice() });
       expect(res.status).toBe(401);
       expect(res.body.code).toBe('OTP_INVALID');
       const [{ n }] = await sequelize.query<{ n: number }>('SELECT COUNT(*) AS n FROM users WHERE phone = :phone', {
@@ -353,7 +339,6 @@ describe('M04 Users (MySQL + Redis)', () => {
       });
       expect(Number(n)).toBe(1);
     } finally {
-      send.mockRestore();
       await sequelize.query('DELETE FROM users WHERE id = :id', { replacements: { id: deletedId } });
     }
   });

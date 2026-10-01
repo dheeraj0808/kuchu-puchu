@@ -49,7 +49,6 @@ describe('JwtStrategy.validate', () => {
     ['null', null],
     ['missing sid', { sub: userId, role: 'user' }],
     ['non-uuid sub', { sub: 'admin', sid, role: 'user' }],
-    ['unknown role', { sub: userId, sid, role: 'superuser' }],
   ])('rejects malformed payload (%s)', async (_l, p) => {
     await expect(strategy.validate(req, p)).rejects.toBeInstanceOf(UnauthorizedException);
     expect(get).not.toHaveBeenCalled();

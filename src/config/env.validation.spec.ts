@@ -26,6 +26,10 @@ const prod = {
   TRUST_PROXY: '1',
   REDIS_URL: 'rediss://cache.internal:6379',
   ALERT_WEBHOOK_URL: 'https://hooks.example.com/services/T000/B000/XXXX',
+  // Passes validation; createSmsProvider still refuses it until that adapter exists.
+  SMS_PROVIDER: 'dlt-sms',
+  EMAIL_FROM: 'no-reply@kuchupuchu.example',
+  SES_REGION: 'ap-south-1',
 };
 
 describe('validateEnv', () => {
@@ -38,6 +42,31 @@ describe('validateEnv', () => {
 
   it('accepts a complete production environment', () => {
     expect(() => validateEnv(prod)).not.toThrow();
+  });
+
+  it('M06: production refuses SMS_PROVIDER unset or "fake", and needs EMAIL_FROM + SES_REGION', () => {
+    const { SMS_PROVIDER: _s, ...noSms } = prod;
+    expect(() => validateEnv(noSms)).toThrow('SMS_PROVIDER must name a real SMS provider in production');
+    expect(() => validateEnv({ ...prod, SMS_PROVIDER: 'fake' })).toThrow('SMS_PROVIDER');
+    const { EMAIL_FROM: _e, ...noEmail } = prod;
+    expect(() => validateEnv(noEmail)).toThrow('EMAIL_FROM and SES_REGION must be set in production');
+    expect(() => validateEnv({ ...base, SMS_PROVIDER: 'fake' })).not.toThrow();
+  });
+
+  it('M06: OTP / session / SMS defaults and formats (Appendix D)', () => {
+    const env = validateEnv(base);
+    expect(env).toMatchObject({
+      SESSION_SLIDING_DAYS: 30,
+      SESSION_MAX_DAYS: 90,
+      OTP_MAX_PER_IP_PER_HOUR: 20,
+      OTP_SMS_ALLOWED_COUNTRIES: '+91',
+      SMS_DAILY_BUDGET: 10_000,
+    });
+    expect(() => validateEnv({ ...base, OTP_SMS_ALLOWED_COUNTRIES: '+91,+971' })).not.toThrow();
+    expect(() => validateEnv({ ...base, OTP_SMS_ALLOWED_COUNTRIES: '91' })).toThrow('OTP_SMS_ALLOWED_COUNTRIES');
+    expect(() => validateEnv({ ...base, SESSION_SLIDING_DAYS: '100', SESSION_MAX_DAYS: '90' })).toThrow('SESSION_SLIDING_DAYS');
+    expect(() => validateEnv({ ...base, SES_REGION: 'mars' })).toThrow('SES_REGION');
+    validateEnv(base);
   });
 
   it.each(['DB_HOST', 'DB_USER', 'DB_NAME', 'JWT_ACCESS_SECRET', 'JWT_REFRESH_SECRET', 'OTP_HASH_SECRET'])(

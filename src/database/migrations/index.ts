@@ -15,6 +15,8 @@ import * as createOutboxEvents from './20261003000001-create-outbox-events';
 import * as usersStatusAndActivity from './20261004000001-users-status-and-activity';
 import * as securityEventsBigintActor from './20261005000001-security-events-bigint-actor';
 import * as usersDropIsActive from './20261006000001-users-drop-is-active';
+import * as rebuildOtpVerifications from './20261007000001-rebuild-otp-verifications';
+import * as rebuildSessions from './20261007000002-rebuild-sessions';
 
 export interface MigrationDefinition {
   name: string;
@@ -38,4 +40,6 @@ export const migrations: MigrationDefinition[] = [
   { name: '20261004000001-users-status-and-activity', ...usersStatusAndActivity },
   { name: '20261005000001-security-events-bigint-actor', ...securityEventsBigintActor },
   { name: '20261006000001-users-drop-is-active', ...usersDropIsActive },
+  { name: '20261007000001-rebuild-otp-verifications', ...rebuildOtpVerifications },
+  { name: '20261007000002-rebuild-sessions', ...rebuildSessions },
 ];

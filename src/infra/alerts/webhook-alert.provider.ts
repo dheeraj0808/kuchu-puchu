@@ -1,6 +1,6 @@
 import { Logger } from '@nestjs/common';
 
-import { type Alert, AlertProvider, errorClassOf, formatAlert, safeAlertValue } from './alert.provider';
+import { type Alert, AlertProvider, errorClassOf, formatAlert, isOutboxAlert, safeAlertValue } from './alert.provider';
 
 export const ALERT_WEBHOOK_TIMEOUT_MS = 3_000;
 
@@ -40,6 +40,10 @@ export class LogAlertProvider extends AlertProvider {
   private readonly logger = new Logger('Alert');
 
   override async send(alert: Alert): Promise<void> {
+    if (!isOutboxAlert(alert)) {
+      this.logger.error({ kind: alert.kind, used: alert.used, budget: alert.budget, day: safeAlertValue(alert.day) }, 'ALERT');
+      return;
+    }
     this.logger.error(
       {
         kind: alert.kind,

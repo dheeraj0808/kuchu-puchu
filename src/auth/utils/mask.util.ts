@@ -20,3 +20,18 @@ export function maskPhone(phone: string): string {
 export function maskIdentifier(type: IdentifierType, identifier: string): string {
   return type === IdentifierType.Email ? maskEmail(identifier) : maskPhone(identifier);
 }
+
+/**
+ * Hides the host part of an IP for device lists (guide M06): IPv4 keeps three
+ * octets ("203.0.113.*"), IPv6 keeps the /48 prefix ("2001:db8:85a3:*").
+ * IPv4-mapped IPv6 addresses are shown as IPv4.
+ */
+export function maskIp(ip: string): string {
+  const v4 = /^(?:::ffff:)?(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.\d{1,3}$/i.exec(ip);
+  if (v4) return `${v4[1]}.${v4[2]}.${v4[3]}.*`;
+  if (ip.includes(':')) {
+    const head = ip.split('::')[0].split(':').filter(Boolean).slice(0, 3);
+    return head.length > 0 ? `${head.join(':')}:*` : '*';
+  }
+  return '*';
+}

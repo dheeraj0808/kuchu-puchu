@@ -79,7 +79,7 @@ describe('PreferencesController (HTTP, real JwtStrategy)', () => {
   beforeEach(() => jest.clearAllMocks());
 
   const auth = async (): Promise<string> =>
-    `Bearer ${(await tokens.signAccessToken({ sub: user.id, sid: session.id, role: user.role })).token}`;
+    `Bearer ${(await tokens.signAccessToken({ sub: user.id, sid: session.id })).token}`;
 
   const valid = {
     minAge: 24,

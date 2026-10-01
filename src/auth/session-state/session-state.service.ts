@@ -16,6 +16,7 @@ import {
 /** Guide S3 / M04: session state is cached for 5 minutes and deleted on every change. */
 export const SESSION_CACHE_TTL_SECONDS = 300;
 
+/** SessionRevokeReason.Restricted; a literal so this file depends on nothing in auth. */
 export const RESTRICTED_REVOKE_REASON = 'restricted';
 
 /** What the JWT check needs per request. Never contains tokens or identifiers. */
@@ -25,7 +26,7 @@ export interface SessionState {
   status: UserStatus;
   deleted: boolean;
   revoked: boolean;
-  /** ms since epoch */
+  /** ms since epoch: the earlier of the sliding and the absolute expiry. */
   expiresAt: number;
 }
 
@@ -56,6 +57,7 @@ interface Row {
   user_id: string;
   revoked_at: Date | null;
   expires_at: Date;
+  absolute_expires_at: Date;
   role: UserRole | null;
   status: UserStatus | null;
   deleted_at: Date | null;
@@ -210,7 +212,7 @@ export class SessionStateService {
 
   private async load(sessionId: string): Promise<SessionState | null> {
     const [row] = await this.sequelize.query<Row>(
-      `SELECT s.user_id, s.revoked_at, s.expires_at, u.role, u.status, u.deleted_at
+      `SELECT s.user_id, s.revoked_at, s.expires_at, s.absolute_expires_at, u.role, u.status, u.deleted_at
          FROM sessions s LEFT JOIN users u ON u.id = s.user_id
         WHERE s.id = :sessionId`,
       { replacements: { sessionId }, type: QueryTypes.SELECT },
@@ -222,7 +224,7 @@ export class SessionStateService {
       status: row.status,
       deleted: row.deleted_at !== null,
       revoked: row.revoked_at !== null,
-      expiresAt: new Date(row.expires_at).getTime(),
+      expiresAt: Math.min(new Date(row.expires_at).getTime(), new Date(row.absolute_expires_at).getTime()),
     };
   }
 }

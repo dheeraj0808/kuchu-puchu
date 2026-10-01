@@ -71,7 +71,7 @@ describe('ProfilesController (HTTP, real JwtStrategy)', () => {
   beforeEach(() => jest.clearAllMocks());
 
   const auth = async (): Promise<string> =>
-    `Bearer ${(await tokens.signAccessToken({ sub: user.id, sid: session.id, role: user.role })).token}`;
+    `Bearer ${(await tokens.signAccessToken({ sub: user.id, sid: session.id })).token}`;
 
   const valid = { displayName: 'Priya', dateOfBirth: '1998-04-21', gender: 'woman' };
 

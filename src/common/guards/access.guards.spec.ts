@@ -9,7 +9,7 @@ import { UserRole } from '../../users/models/user.model';
 import { ADVANCED_FILTER_LEVELS, EntitlementKey, UserEntitlements, FREE_PLAN_ENTITLEMENTS } from '../entitlements/entitlements';
 import { EntitlementsModule, EntitlementsService } from '../entitlements/entitlements.service';
 import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
-import { OnboardingModule, OnboardingStatusService } from '../onboarding/onboarding-status.service';
+import { OnboardingService } from '../onboarding/onboarding.service';
 import { RequiresEntitlement, Roles } from './access.decorators';
 import { EntitlementGuard, RolesGuard, VerifiedUserGuard } from './access.guards';
 
@@ -76,13 +76,15 @@ class ProbeController {
   }
 }
 
-async function buildApp(overrides: { onboarding?: OnboardingStatusService } = {}): Promise<INestApplication> {
-  let builder = Test.createTestingModule({
-    imports: [EntitlementsModule, OnboardingModule],
+/** The API's stubs today: selfie (M11) and photos (M12) are never done. */
+const stubOnboarding = { status: () => Promise.resolve({ selfieApproved: false, nextStep: 'selfie' }) };
+
+async function buildApp(overrides: { onboarding?: Pick<OnboardingService, 'status'> } = {}): Promise<INestApplication> {
+  const builder = Test.createTestingModule({
+    imports: [EntitlementsModule],
     controllers: [ProbeController],
-    providers: [FakeAuthGuard],
+    providers: [FakeAuthGuard, { provide: OnboardingService, useValue: overrides.onboarding ?? stubOnboarding }],
   });
-  if (overrides.onboarding) builder = builder.overrideProvider(OnboardingStatusService).useValue(overrides.onboarding);
   const app = (await builder.compile()).createNestApplication({ logger: false });
   app.useGlobalFilters(new AllExceptionsFilter());
   await app.init();
@@ -145,7 +147,7 @@ describe('access guards', () => {
 
     it('allows the request once the status service reports an approved selfie', async () => {
       const approved = await buildApp({
-        onboarding: { getStatus: () => Promise.resolve({ selfieApproved: true, nextStep: 'photos' }) },
+        onboarding: { status: () => Promise.resolve({ selfieApproved: true, nextStep: 'photos' }) },
       });
       try {
         await request(approved.getHttpServer()).get('/verified').set('x-test-db-role', 'user').expect(200);
