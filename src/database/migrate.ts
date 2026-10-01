@@ -6,7 +6,7 @@ import { SequelizeStorage, Umzug } from 'umzug';
 
 import { type MigrationDefinition, migrations } from './migrations';
 import { assertSupportedServer } from './server-version';
-import { type SeederDefinition, seeders } from './seeders';
+import { runSeeders, type SeederDefinition, seeders } from './seeders';
 
 /** Reverting is for local development only. */
 const DOWN_ALLOWED_ENVS = new Set(['development', 'test']);
@@ -158,11 +158,9 @@ async function runMigrations(command: string): Promise<void> {
         break;
       }
       case 'seed': {
-        const seeding = buildUmzug(sequelize, seeders, 'sequelize_seed_meta');
-        const applied = await seeding.up();
-        console.log(
-          applied.length ? `Applied ${applied.length} seeder(s)` : 'No pending seeders',
-        );
+        // Every seeder upserts, so all of them run every time (M08).
+        await runSeeders(sequelize);
+        console.log(`Ran ${seeders.length} seeder(s)`);
         break;
       }
       default:

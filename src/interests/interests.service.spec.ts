@@ -2,8 +2,8 @@ import 'reflect-metadata';
 
 import { Op, type Transaction } from 'sequelize';
 
-import { createTestConfig } from '../auth/testing/test-config';
 import { AppException, ErrorCode } from '../common/exceptions/app.exception';
+import { fakeSettings } from '../settings/testing/fake-settings';
 import { InterestsService } from './interests.service';
 import type { Interest } from './models/interest.model';
 import type { ProfileInterest } from './models/profile-interest.model';
@@ -36,7 +36,7 @@ function setup() {
   const service = new InterestsService(
     interestModel as unknown as typeof Interest,
     profileInterestModel as unknown as typeof ProfileInterest,
-    createTestConfig(),
+    fakeSettings({ 'profile.max_interests': 5 }),
   );
   return { service, interestModel, profileInterestModel };
 }
@@ -57,26 +57,8 @@ const catchApp = async (p: Promise<unknown>): Promise<AppException> => {
 };
 
 describe('InterestsService', () => {
-  it('exposes the configured max', () => {
-    expect(setup().service.maxInterests).toBe(5);
-  });
-
-  describe('listActive', () => {
-    it('queries only active interests and maps to {id,name,slug}', async () => {
-      const { service, interestModel } = setup();
-      interestModel.findAll.mockResolvedValue([row(1, 'Art'), row(2, 'Music')]);
-
-      const res = await service.listActive();
-
-      expect(interestModel.findAll).toHaveBeenCalledWith(
-        expect.objectContaining({ where: { isActive: true }, order: [['name', 'ASC']] }),
-      );
-      expect(res).toEqual([
-        { id: id(1), name: 'Art', slug: 'art' },
-        { id: id(2), name: 'Music', slug: 'music' },
-      ]);
-      for (const r of res) expect(Object.keys(r).sort()).toEqual(['id', 'name', 'slug']);
-    });
+  it('reads the max from the profile.max_interests setting', async () => {
+    await expect(setup().service.maxInterests()).resolves.toBe(5);
   });
 
   describe('listForProfile / countActiveForProfile', () => {

@@ -18,6 +18,7 @@ import { ProfileCompletionService } from './profile-completion.service';
 import { InterestsService } from '../interests/interests.service';
 import type { ProfileInterestsResponse } from '../interests/dto/profile-interests.response';
 import { PreferencesService } from '../preferences/preferences.service';
+import { SettingsService } from '../settings/settings.service';
 import { ProfileDetailResponse } from './dto/profile-detail.response';
 
 type LocationAttrs = Pick<
@@ -60,7 +61,13 @@ export class ProfilesService {
     @InjectConnection() private readonly sequelize: Sequelize,
     private readonly interests: InterestsService,
     private readonly preferences: PreferencesService,
+    private readonly settings: SettingsService,
   ) {}
+
+  /** profile.min_interests_for_completion (M08 settings). */
+  private minInterests(): Promise<number> {
+    return this.settings.get('profile.min_interests_for_completion');
+  }
 
   findByUserId(userId: string, transaction?: Transaction): Promise<Profile | null> {
     return this.profileModel.findOne({ where: { userId }, transaction });
@@ -74,7 +81,7 @@ export class ProfilesService {
       this.interests.listForProfile(profile.id),
       this.preferences.getOwn(userId),
     ]);
-    const completion = this.completion.calculate({ ...profile.get(), interestCount: interests.length });
+    const completion = this.completion.calculate({ ...profile.get(), interestCount: interests.length }, await this.minInterests());
     return ProfileDetailResponse.build(profile, completion, interests, preferences);
   }
 
@@ -86,14 +93,14 @@ export class ProfilesService {
 
   async getCompletion(userId: string): Promise<ProfileCompletionResponse> {
     const profile = await this.findByUserId(userId);
-    if (!profile) return this.completion.calculate(null);
+    if (!profile) return this.completion.calculate(null, await this.minInterests());
     return this.completionFor(profile);
   }
 
   async getOwnInterests(userId: string): Promise<ProfileInterestsResponse> {
     const profile = await this.findByUserId(userId);
     const interests = profile ? await this.interests.listForProfile(profile.id) : [];
-    return { interests, maxInterests: this.interests.maxInterests };
+    return { interests, maxInterests: await this.interests.maxInterests() };
   }
 
   /** Atomically replaces the caller's interests and refreshes stored completion. */
@@ -108,12 +115,12 @@ export class ProfilesService {
       const count = await this.interests.replaceForProfile(profile.id, interestIds, transaction);
       profile.set(
         'profileCompletion',
-        this.completion.calculate({ ...profile.get(), interestCount: count }).profileCompletion,
+        this.completion.calculate({ ...profile.get(), interestCount: count }, await this.minInterests()).profileCompletion,
       );
       await profile.save({ transaction });
       return this.interests.listForProfile(profile.id, transaction);
     });
-    return { interests, maxInterests: this.interests.maxInterests };
+    return { interests, maxInterests: await this.interests.maxInterests() };
   }
 
   async create(userId: string, dto: CreateProfileDto, ctx: RequestContext): Promise<ProfileResponse> {
@@ -150,12 +157,12 @@ export class ProfilesService {
         await existing.restore({ transaction });
         existing.set(attrs);
         // Interests were removed on deletion, so the count is zero.
-        existing.set('profileCompletion', this.completion.calculate({ ...existing.get(), interestCount: 0 }).profileCompletion);
+        existing.set('profileCompletion', this.completion.calculate({ ...existing.get(), interestCount: 0 }, await this.minInterests()).profileCompletion);
         return existing.save({ transaction });
       }
 
       const draft = this.profileModel.build({ userId, ...attrs });
-      draft.set('profileCompletion', this.completion.calculate({ ...draft.get(), interestCount: 0 }).profileCompletion);
+      draft.set('profileCompletion', this.completion.calculate({ ...draft.get(), interestCount: 0 }, await this.minInterests()).profileCompletion);
       try {
         return await draft.save({ transaction });
       } catch (err) {
@@ -215,7 +222,7 @@ export class ProfilesService {
 
   private async completionFor(profile: Profile, transaction?: Transaction): Promise<ProfileCompletionResponse> {
     const interestCount = await this.interests.countActiveForProfile(profile.id, transaction);
-    return this.completion.calculate({ ...profile.get(), interestCount });
+    return this.completion.calculate({ ...profile.get(), interestCount }, await this.minInterests());
   }
 
   private async deactivate(profile: Profile, opts: { scrubIdentity: boolean }, transaction: Transaction): Promise<void> {
@@ -230,7 +237,7 @@ export class ProfilesService {
       ...locationAttrs(null, new Date()),
       ...(opts.scrubIdentity ? { displayName: null, dateOfBirth: null, gender: null } : {}),
     });
-    profile.set('profileCompletion', this.completion.calculate({ ...profile.get(), interestCount: 0 }).profileCompletion);
+    profile.set('profileCompletion', this.completion.calculate({ ...profile.get(), interestCount: 0 }, await this.minInterests()).profileCompletion);
     await profile.save({ transaction });
     if (!profile.deletedAt) await profile.destroy({ transaction });
   }

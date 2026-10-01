@@ -20,6 +20,9 @@ import * as rebuildSessions from './20261007000002-rebuild-sessions';
 import * as usersNullDeletedIdentifiers from './20261008000001-users-null-deleted-identifiers';
 import * as createDataExportRequests from './20261008000002-create-data-export-requests';
 import * as createBanHashes from './20261008000003-create-ban-hashes';
+import * as alignInterests from './20261009000001-align-interests';
+import * as createPrompts from './20261009000002-create-prompts';
+import * as createAppSettings from './20261009000003-create-app-settings';
 
 export interface MigrationDefinition {
   name: string;
@@ -48,4 +51,7 @@ export const migrations: MigrationDefinition[] = [
   { name: '20261008000001-users-null-deleted-identifiers', ...usersNullDeletedIdentifiers },
   { name: '20261008000002-create-data-export-requests', ...createDataExportRequests },
   { name: '20261008000003-create-ban-hashes', ...createBanHashes },
+  { name: '20261009000001-align-interests', ...alignInterests },
+  { name: '20261009000002-create-prompts', ...createPrompts },
+  { name: '20261009000003-create-app-settings', ...createAppSettings },
 ];

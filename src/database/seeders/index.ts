@@ -1,17 +1,21 @@
-import type { QueryInterface } from 'sequelize';
+import type { QueryInterface, Sequelize } from 'sequelize';
 import type { MigrationFn } from 'umzug';
+
+import * as interests from './20261009000001-interests';
+import * as prompts from './20261009000002-prompts';
+import * as appSettings from './20261009000003-app-settings';
 
 /**
  * Seed data (catalogue rows, reference data). Run with `npm run seed`.
  *
- * Each seeder runs once and is recorded in `sequelize_seed_meta`, like
- * migrations are in `sequelize_meta`. Seeders must be idempotent anyway
- * (insert only what is missing, never overwrite), so re-running on a copy of
- * another environment is safe. Name them `<yyyymmddhhmmss>-<what>`, add the
- * file next to this one, and append it below.
+ * Since M08 every seeder runs on every `npm run seed` (no run-once record):
+ * each one upserts, so re-running is safe and picks up edits to the seed
+ * lists. Catalogue seeders upsert by their natural key; the settings seeder
+ * only inserts missing keys, so admin changes are never overwritten. Name
+ * them `<yyyymmddhhmmss>-<what>`, add the file next to this one, and append
+ * it below.
  *
- * The interests catalogue is seeded by migration 20261001000004-seed-interests,
- * which stays as it is.
+ * Migration 20261001000004-seed-interests (the first catalogue) stays as it is.
  */
 export interface SeederDefinition {
   name: string;
@@ -20,4 +24,14 @@ export interface SeederDefinition {
 }
 
 /** Ordered list of seeders. Append new seeders at the end. */
-export const seeders: SeederDefinition[] = [];
+export const seeders: SeederDefinition[] = [
+  { name: '20261009000001-interests', ...interests },
+  { name: '20261009000002-prompts', ...prompts },
+  { name: '20261009000003-app-settings', ...appSettings },
+];
+
+/** Runs every seeder in order. Each one upserts, so this is safe to repeat. */
+export async function runSeeders(sequelize: Sequelize): Promise<void> {
+  const context = sequelize.getQueryInterface();
+  for (const seeder of seeders) await seeder.up({ name: seeder.name, path: undefined, context });
+}

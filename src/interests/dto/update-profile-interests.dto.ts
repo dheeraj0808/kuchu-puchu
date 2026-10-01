@@ -1,7 +1,7 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { ArrayMaxSize, ArrayUnique, IsArray, IsUUID } from 'class-validator';
 
-/** Hard cap independent of config; the configured PROFILE_MAX_INTERESTS is enforced in the service. */
+/** Hard cap independent of settings; the profile.max_interests setting is enforced in the service. */
 export const INTEREST_IDS_HARD_CAP = 50;
 
 export class UpdateProfileInterestsDto {

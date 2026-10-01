@@ -1,17 +1,15 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/sequelize';
 import { type Transaction, UniqueConstraintError } from 'sequelize';
 
 import { AppException, ErrorCode } from '../common/exceptions/app.exception';
-import type { ProfileConfig } from '../config/profile.config';
 import { Gender } from '../profiles/models/profile.model';
 import type { CreatePreferencesDto } from './dto/create-preferences.dto';
 import { PreferencesResponse } from './dto/preferences.response';
 import type { UpdatePreferencesDto } from './dto/update-preferences.dto';
+import { SettingsService } from '../settings/settings.service';
 import { DatingPreference } from './models/dating-preference.model';
 
-const DEFAULT_DISTANCE_KM = 50;
 const GENDER_ORDER = Object.values(Gender);
 
 const validationError = (message: string): AppException =>
@@ -22,11 +20,17 @@ const validationError = (message: string): AppException =>
 export class PreferencesService {
   constructor(
     @InjectModel(DatingPreference) private readonly preferenceModel: typeof DatingPreference,
-    private readonly config: ConfigService,
+    private readonly settings: SettingsService,
   ) {}
 
-  private get cfg(): ProfileConfig {
-    return this.config.getOrThrow<ProfileConfig>('profile');
+  /** preferences.min_distance_km / max_distance_km / default_distance_km (M08 settings). */
+  private async distances(): Promise<{ minDistanceKm: number; maxDistanceKm: number; defaultDistanceKm: number }> {
+    const s = await this.settings.all();
+    return {
+      minDistanceKm: s['preferences.min_distance_km'],
+      maxDistanceKm: s['preferences.max_distance_km'],
+      defaultDistanceKm: s['preferences.default_distance_km'],
+    };
   }
 
   findByUserId(userId: string, transaction?: Transaction): Promise<DatingPreference | null> {
@@ -36,13 +40,13 @@ export class PreferencesService {
   async getOwn(userId: string): Promise<PreferencesResponse> {
     const pref = await this.findByUserId(userId);
     if (pref) return PreferencesResponse.fromModel(pref);
-    const { minDistanceKm, maxDistanceKm } = this.cfg;
-    return PreferencesResponse.defaults(Math.min(Math.max(DEFAULT_DISTANCE_KM, minDistanceKm), maxDistanceKm));
+    const { minDistanceKm, maxDistanceKm, defaultDistanceKm } = await this.distances();
+    return PreferencesResponse.defaults(Math.min(Math.max(defaultDistanceKm, minDistanceKm), maxDistanceKm));
   }
 
   async create(userId: string, dto: CreatePreferencesDto): Promise<PreferencesResponse> {
     if (await this.findByUserId(userId)) throw this.alreadyExists();
-    const values = this.validated(dto);
+    const values = await this.validated(dto);
     try {
       const pref = await this.preferenceModel.create({ ...values, userId });
       return PreferencesResponse.fromModel(pref);
@@ -58,7 +62,7 @@ export class PreferencesService {
     if (!pref) {
       throw new AppException(ErrorCode.PreferencesNotFound);
     }
-    const merged = this.validated({
+    const merged = await this.validated({
       minAge: dto.minAge ?? pref.minAge,
       maxAge: dto.maxAge ?? pref.maxAge,
       preferredGenders: dto.preferredGenders ?? pref.preferredGenders,
@@ -76,9 +80,9 @@ export class PreferencesService {
   }
 
   /** Cross-field and config-dependent checks on the full (merged) record. */
-  private validated(v: CreatePreferencesDto): CreatePreferencesDto {
+  private async validated(v: CreatePreferencesDto): Promise<CreatePreferencesDto> {
     if (v.maxAge < v.minAge) throw validationError('maxAge must not be below minAge');
-    const { minDistanceKm, maxDistanceKm } = this.cfg;
+    const { minDistanceKm, maxDistanceKm } = await this.distances();
     if (v.maxDistanceKm < minDistanceKm || v.maxDistanceKm > maxDistanceKm) {
       throw validationError(`maxDistanceKm must be between ${minDistanceKm} and ${maxDistanceKm}`);
     }

@@ -28,6 +28,8 @@ import { AuthModule } from './auth/auth.module';
 import { LastActiveInterceptor } from './users/last-active.interceptor';
 import { UsersModule } from './users/users.module';
 import { InterestsModule } from './interests/interests.module';
+import { CatalogModule } from './catalog/catalog.module';
+import { SettingsModule } from './settings/settings.module';
 import { PreferencesModule } from './preferences/preferences.module';
 import { ProfilesModule } from './profiles/profiles.module';
 import { DiscoveryModule } from './discovery/discovery.module';
@@ -74,6 +76,7 @@ function observeImports(): DynamicModule[] {
     EmailModule,
     StorageModule,
     AccountRegistryModule,
+    SettingsModule,
     HealthModule,
     EntitlementsModule,
     OnboardingModule,
@@ -85,6 +88,7 @@ function observeImports(): DynamicModule[] {
     UsersModule,
     ProfilesModule,
     InterestsModule,
+    CatalogModule,
     PreferencesModule,
     DiscoveryModule,
     MatchingModule,

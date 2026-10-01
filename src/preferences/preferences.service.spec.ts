@@ -3,12 +3,11 @@ import 'reflect-metadata';
 import { HttpStatus } from '@nestjs/common';
 import { type Transaction, UniqueConstraintError } from 'sequelize';
 
-import { createTestConfig } from '../auth/testing/test-config';
-import type { ProfileConfig } from '../config/profile.config';
 import { AppException, ErrorCode } from '../common/exceptions/app.exception';
 import { Gender } from '../profiles/models/profile.model';
 import type { CreatePreferencesDto } from './dto/create-preferences.dto';
 import { type DatingPreference, RelationshipIntent } from './models/dating-preference.model';
+import { fakeSettings } from '../settings/testing/fake-settings';
 import { PreferencesService } from './preferences.service';
 
 const USER_ID = '11111111-1111-4111-8111-111111111111';
@@ -61,8 +60,14 @@ async function expectAppError(p: Promise<unknown>, code: ErrorCode, status: Http
 describe('PreferencesService', () => {
   let model: ModelMock;
 
-  const build = (profile: Partial<ProfileConfig> = {}): PreferencesService =>
-    new PreferencesService(model as unknown as typeof DatingPreference, createTestConfig({ profile }));
+  const build = (limits: { minDistanceKm?: number; maxDistanceKm?: number } = {}): PreferencesService =>
+    new PreferencesService(
+      model as unknown as typeof DatingPreference,
+      fakeSettings({
+        'preferences.min_distance_km': limits.minDistanceKm ?? 1,
+        'preferences.max_distance_km': limits.maxDistanceKm ?? 500,
+      }),
+    );
 
   beforeEach(() => {
     model = {

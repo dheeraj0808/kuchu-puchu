@@ -48,6 +48,8 @@ export enum SecurityEventType {
   DataExportUrlIssued = 'account.data_export_url_issued',
   DataExportFailed = 'account.data_export_failed',
   UserStatusChanged = 'user.status_changed',
+  /** An app_settings value was changed (M08 SettingsService.set; M15 admin API). Kept 3 years (admin.*). */
+  AdminSettingChanged = 'admin.setting_changed',
   /** A valid session was refused because the account is suspended, banned or deactivated. */
   AccountRestricted = 'auth.account_restricted',
 }

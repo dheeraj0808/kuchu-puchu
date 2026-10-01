@@ -3,13 +3,12 @@ import databaseConfig from './database.config';
 import jwtConfig from './jwt.config';
 import otpConfig from './otp.config';
 import outboxConfig from './outbox.config';
-import profileConfig from './profile.config';
 import securityConfig from './security.config';
 import { alertsConfig, awsConfig, fcmConfig, redisConfig } from './integrations.config';
 import { emailConfig, smsConfig } from './messaging.config';
 
 export { getValidatedEnv, validateEnv } from './env.validation';
-export { appConfig, databaseConfig, jwtConfig, otpConfig, outboxConfig, profileConfig };
+export { appConfig, databaseConfig, jwtConfig, otpConfig, outboxConfig };
 
 export const configLoaders = [
   appConfig,
@@ -17,7 +16,6 @@ export const configLoaders = [
   jwtConfig,
   otpConfig,
   outboxConfig,
-  profileConfig,
   securityConfig,
   redisConfig,
   awsConfig,

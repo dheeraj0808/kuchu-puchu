@@ -1,16 +1,15 @@
 import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/sequelize';
 import { Op, type Transaction } from 'sequelize';
 
 import { AppException, ErrorCode } from '../common/exceptions/app.exception';
-import type { ProfileConfig } from '../config/profile.config';
+import { SettingsService } from '../settings/settings.service';
 import { InterestResponse } from './dto/interest.response';
 import { Interest } from './models/interest.model';
 import { ProfileInterest } from './models/profile-interest.model';
 
 /**
- * Interest catalogue + profile selections. Knows nothing about users; callers
+ * Profile interest selections (the catalogue is served by CatalogService). Knows nothing about users; callers
  * (ProfilesService) resolve the caller's own profile id first.
  */
 @Injectable()
@@ -18,16 +17,12 @@ export class InterestsService {
   constructor(
     @InjectModel(Interest) private readonly interestModel: typeof Interest,
     @InjectModel(ProfileInterest) private readonly profileInterestModel: typeof ProfileInterest,
-    private readonly config: ConfigService,
+    private readonly settings: SettingsService,
   ) {}
 
-  get maxInterests(): number {
-    return this.config.getOrThrow<ProfileConfig>('profile').maxInterests;
-  }
-
-  async listActive(): Promise<InterestResponse[]> {
-    const rows = await this.interestModel.findAll({ where: { isActive: true }, order: [['name', 'ASC']] });
-    return rows.map((r) => InterestResponse.fromModel(r));
+  /** The profile.max_interests setting. */
+  maxInterests(): Promise<number> {
+    return this.settings.get('profile.max_interests');
   }
 
   /** Active interests selected by the profile, alphabetical. */
@@ -63,7 +58,7 @@ export class InterestsService {
         errors: ['interestIds must not contain duplicates'],
       });
     }
-    const max = this.maxInterests;
+    const max = await this.maxInterests();
     if (ids.length > max) {
       throw new AppException(ErrorCode.ValidationError, {
         errors: [`You can select at most ${max} interests`],

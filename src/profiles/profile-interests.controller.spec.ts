@@ -17,8 +17,8 @@ import { fakeSession, fakeUser, fakeSessionState } from '../auth/testing/fakes';
 import { createTestConfig } from '../auth/testing/test-config';
 import { AllExceptionsFilter } from '../common/filters/all-exceptions.filter';
 import { createValidationPipe } from '../common/pipes/validation.pipe';
-import { InterestsController } from '../interests/interests.controller';
-import { InterestsService } from '../interests/interests.service';
+import { CatalogController } from '../catalog/catalog.controller';
+import { CatalogService } from '../catalog/catalog.service';
 import { UsersService } from '../users/users.service';
 import { ProfileInterestsController } from './profile-interests.controller';
 import { ProfilesService } from './profiles.service';
@@ -30,7 +30,7 @@ const CATALOGUE = [
   { id: ID2, name: 'Travel', slug: 'travel' },
 ];
 
-describe('ProfileInterestsController + InterestsController (HTTP, real JwtStrategy)', () => {
+describe('ProfileInterestsController + CatalogController (HTTP, real JwtStrategy)', () => {
   let app: INestApplication;
   let tokens: TokenService;
   const user = fakeUser();
@@ -40,12 +40,13 @@ describe('ProfileInterestsController + InterestsController (HTTP, real JwtStrate
     getOwnInterests: jest.fn().mockResolvedValue({ interests: [], maxInterests: 5 }),
     replaceOwnInterests: jest.fn().mockResolvedValue({ interests: [CATALOGUE[0]], maxInterests: 5 }),
   };
-  const interestsMock = { listActive: jest.fn().mockResolvedValue(CATALOGUE) };
+  const GROUPED = [{ category: 'arts', interests: CATALOGUE }];
+  const catalogMock = { interests: jest.fn().mockResolvedValue(GROUPED), prompts: jest.fn().mockResolvedValue([]) };
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
       imports: [PassportModule, JwtModule.register({})],
-      controllers: [ProfileInterestsController, InterestsController],
+      controllers: [ProfileInterestsController, CatalogController],
       providers: [
         { provide: ConfigService, useValue: createTestConfig() },
         {
@@ -58,7 +59,7 @@ describe('ProfileInterestsController + InterestsController (HTTP, real JwtStrate
         },
         { provide: UsersService, useValue: { findById: (id: string) => Promise.resolve(id === user.id ? user : null) } },
         { provide: ProfilesService, useValue: profilesMock },
-        { provide: InterestsService, useValue: interestsMock },
+        { provide: CatalogService, useValue: catalogMock },
         TokenService,
         JwtStrategy,
         JwtAuthGuard,
@@ -81,10 +82,11 @@ describe('ProfileInterestsController + InterestsController (HTTP, real JwtStrate
   const auth = async (): Promise<string> =>
     `Bearer ${(await tokens.signAccessToken({ sub: user.id, sid: session.id })).token}`;
 
-  const allMocks = [...Object.values(profilesMock), ...Object.values(interestsMock)];
+  const allMocks = [...Object.values(profilesMock), ...Object.values(catalogMock)];
 
   it.each([
-    ['get', '/interests'],
+    ['get', '/catalog/interests'],
+    ['get', '/catalog/prompts'],
     ['get', '/profile/interests'],
     ['put', '/profile/interests'],
   ] as const)('%s %s → 401 without a token', async (method, path) => {
@@ -93,10 +95,14 @@ describe('ProfileInterestsController + InterestsController (HTTP, real JwtStrate
     expect(allMocks.every((m) => m.mock.calls.length === 0)).toBe(true);
   });
 
-  it('GET /interests returns the active catalogue', async () => {
-    const res = await request(app.getHttpServer()).get('/interests').set('Authorization', await auth()).expect(200);
-    expect(res.body).toEqual(CATALOGUE);
-    expect(interestsMock.listActive).toHaveBeenCalledTimes(1);
+  it('GET /catalog/interests returns the active catalogue grouped by category', async () => {
+    const res = await request(app.getHttpServer()).get('/catalog/interests').set('Authorization', await auth()).expect(200);
+    expect(res.body).toEqual(GROUPED);
+    expect(catalogMock.interests).toHaveBeenCalledTimes(1);
+  });
+
+  it('the old GET /interests route is gone', async () => {
+    await request(app.getHttpServer()).get('/interests').set('Authorization', await auth()).expect(404);
   });
 
   it('GET /profile/interests is scoped to the token owner', async () => {

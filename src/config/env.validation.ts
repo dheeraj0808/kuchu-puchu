@@ -250,21 +250,6 @@ export class EnvironmentVariables {
   @Matches(/^[a-z]{2}(-[a-z]+)+-\d$/, { message: 'SES_REGION must be an AWS region such as ap-south-1' })
   SES_REGION?: string;
 
-  // Profile / preferences
-  @IsInt()
-  @Min(1)
-  @Max(50)
-  PROFILE_MAX_INTERESTS: number = 10;
-
-  @IsInt()
-  @Min(1)
-  PREFERENCES_MIN_DISTANCE_KM: number = 1;
-
-  @IsInt()
-  @Min(1)
-  @Max(20000)
-  PREFERENCES_MAX_DISTANCE_KM: number = 500;
-
   // AWS / storage (M07). Credentials come from the IAM role, never from keys.
   @IsOptional()
   @Matches(/^[a-z]{2}(-[a-z]+)+-\d$/, { message: 'AWS_REGION must be an AWS region such as ap-south-1' })
@@ -428,9 +413,6 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
   }
   if (validated.SECURITY_EVENTS_ADMIN_RETENTION_DAYS < validated.SECURITY_EVENTS_RETENTION_DAYS) {
     throw new Error('SECURITY_EVENTS_ADMIN_RETENTION_DAYS must not be below SECURITY_EVENTS_RETENTION_DAYS');
-  }
-  if (validated.PREFERENCES_MIN_DISTANCE_KM > validated.PREFERENCES_MAX_DISTANCE_KM) {
-    throw new Error('PREFERENCES_MIN_DISTANCE_KM must not exceed PREFERENCES_MAX_DISTANCE_KM');
   }
   assertSecretsDistinct(validated);
 

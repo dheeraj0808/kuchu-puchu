@@ -11,6 +11,7 @@ import { SecurityEventType } from '../security/models/security-event.model';
 import type { CreateProfileDto } from './dto/create-profile.dto';
 import { Gender, type Profile, ProfileVisibility } from './models/profile.model';
 import { ProfileCompletionService } from './profile-completion.service';
+import { fakeSettings } from '../settings/testing/fake-settings';
 import { ProfilesService } from './profiles.service';
 import { type FakeProfile, fakeProfile } from './testing/fakes';
 
@@ -44,7 +45,7 @@ function setup() {
     listForProfile: jest.fn().mockResolvedValue([]),
     replaceForProfile: jest.fn((_profileId: string, ids: string[]) => Promise.resolve(ids.length)),
     removeAllForProfile: jest.fn().mockResolvedValue(0),
-    maxInterests: 5,
+    maxInterests: jest.fn().mockResolvedValue(5),
   };
   const preferencesService = { getOwn: jest.fn().mockResolvedValue(PREFS) };
   const service = new ProfilesService(
@@ -54,6 +55,7 @@ function setup() {
     sequelize as unknown as Sequelize,
     interestsService as unknown as InterestsService,
     preferencesService as unknown as PreferencesService,
+    fakeSettings(),
   );
   return { service, model, events, sequelize, tx, interestsService, preferencesService };
 }

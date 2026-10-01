@@ -2,26 +2,19 @@ import { Column, CreatedAt, DataType, Default, Model, PrimaryKey, Table, Updated
 
 import { uuidv7 } from '../../common/utils/uuid';
 
-/** guide §8 M08: global catalogue entry. Never deleted — deactivate with isActive=false instead. */
-@Table({ tableName: 'interests', underscored: true, timestamps: true })
-export class Interest extends Model {
+/** guide §8 M08: profile question catalogue. Never deleted — deactivate instead. */
+@Table({ tableName: 'prompts', underscored: true, timestamps: true })
+export class Prompt extends Model {
   @PrimaryKey
   @Default(uuidv7)
   @Column(DataType.UUID)
   override id: string;
 
-  @Column({ type: DataType.STRING(50), allowNull: false })
-  name: string;
-
-  @Column({ type: DataType.STRING(50), allowNull: false, unique: 'interests_slug_unique' })
-  slug: string;
+  @Column({ type: DataType.STRING(150), allowNull: false, unique: 'prompts_text_unique' })
+  text: string;
 
   @Column({ type: DataType.STRING(30), allowNull: false })
   category: string;
-
-  /** Icon name from the app's icon set. */
-  @Column({ type: DataType.STRING(50), allowNull: false })
-  icon: string;
 
   @Default(true)
   @Column({ type: DataType.BOOLEAN, allowNull: false })

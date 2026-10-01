@@ -11,10 +11,10 @@ export type CompletionInput = Pick<
   interestCount: number;
 };
 
-/** Selecting at least this many interests counts the interests section as complete. */
+/** Default of the profile.min_interests_for_completion setting (M08). */
 export const MIN_INTERESTS_FOR_COMPLETION = 3;
 
-type Rule = { field: ProfileField; weight: number; isPresent: (p: CompletionInput) => boolean };
+type Rule = { field: ProfileField; weight: number; isPresent: (p: CompletionInput, minInterests: number) => boolean };
 
 /**
  * Single source of truth for profile completion. Weights must sum to 100.
@@ -31,17 +31,18 @@ export const COMPLETION_RULES: ReadonlyArray<Rule> = [
   {
     field: ProfileField.Interests,
     weight: 20,
-    isPresent: (p) => p.interestCount >= MIN_INTERESTS_FOR_COMPLETION,
+    isPresent: (p, minInterests) => p.interestCount >= minInterests,
   },
 ];
 
 @Injectable()
 export class ProfileCompletionService {
-  calculate(profile: CompletionInput | null): ProfileCompletionResponse {
+  /** `minInterests`: the profile.min_interests_for_completion setting (callers read it from SettingsService). */
+  calculate(profile: CompletionInput | null, minInterests: number = MIN_INTERESTS_FOR_COMPLETION): ProfileCompletionResponse {
     let score = 0;
     const missingFields: ProfileField[] = [];
     for (const rule of COMPLETION_RULES) {
-      if (profile && rule.isPresent(profile)) score += rule.weight;
+      if (profile && rule.isPresent(profile, minInterests)) score += rule.weight;
       else missingFields.push(rule.field);
     }
     return { profileCompletion: Math.min(100, score), missingFields };
