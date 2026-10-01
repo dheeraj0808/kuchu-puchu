@@ -45,6 +45,8 @@ function watchFakes(app: NestExpressApplication): void {
   sms.sendOtp = async (message) => {
     rememberSecret(message.code);
     rememberSecret(message.to);
+    // Also the national form (e.g. 9812345678 for +91…), in case something logged it without the prefix.
+    if (message.to.startsWith('+91')) rememberSecret(message.to.slice(3));
     return sendOtp(message);
   };
   const email = fakeEmail(app);

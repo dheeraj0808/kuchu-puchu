@@ -21,7 +21,7 @@ import { User, UserStatus } from '../../src/users/models/user.model';
 import { RevokeSessionsHandler } from '../../src/users/revoke-sessions.handler';
 import { UsersService } from '../../src/users/users.service';
 import { createTestApp } from '../support/test-app';
-import { ctx, indianMobile, lastCode, newDevice, openSession } from '../support/auth-helpers';
+import { ctx, freshIp, indianMobile, lastCode, newDevice, openSession } from '../support/auth-helpers';
 import { waitUntil } from '../support/outbox-harness';
 
 
@@ -321,7 +321,7 @@ describe('M04 Users (MySQL + Redis)', () => {
     );
     try {
       const server = app.getHttpServer();
-      const from = '198.51.100.91';
+      const from = freshIp();
       await request(server)
         .post('/api/v1/auth/otp/request')
         .set('X-Forwarded-For', from)

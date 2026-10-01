@@ -26,7 +26,7 @@ export default registerAs('otp', (): OtpConfig => {
     maxRequestsPerHour: env.OTP_MAX_PER_HOUR,
     maxRequestsPerIpPerHour: env.OTP_MAX_PER_IP_PER_HOUR,
     smsAllowedCountries: env.OTP_SMS_ALLOWED_COUNTRIES.split(','),
-    // Never allowed in production (also rejected by validateEnv).
-    devEcho: env.NODE_ENV !== Environment.Production && env.OTP_DEV_ECHO,
+    // Development and test only (validateEnv rejects it elsewhere).
+    devEcho: (env.NODE_ENV === Environment.Development || env.NODE_ENV === Environment.Test) && env.OTP_DEV_ECHO,
   };
 });

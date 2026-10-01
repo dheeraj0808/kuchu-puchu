@@ -70,7 +70,8 @@ describe('Database schema (MySQL 8.4)', () => {
     const [{ n }] = await select<{ n: number }>(
       'SELECT COUNT(*) AS n FROM information_schema.REFERENTIAL_CONSTRAINTS WHERE CONSTRAINT_SCHEMA = DATABASE()',
     );
-    expect(Number(n)).toBeGreaterThanOrEqual(7);
+    // M06 dropped otp_verifications.user_id (and its FK) to match the spec.
+    expect(Number(n)).toBeGreaterThanOrEqual(6);
   });
 
   it('creates future UUID columns as utf8mb4_bin through the shared helper', async () => {

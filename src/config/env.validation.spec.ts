@@ -98,6 +98,20 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...prod, CORS_ORIGINS: '' })).toThrow(/CORS_ORIGINS/);
   });
 
+  it('M06 review: production refuses a TRUST_PROXY that trusts any X-Forwarded-For', () => {
+    for (const bad of ['true', 'yes', '0', '1.2.3.4, *', '0.0.0.0/1,128.0.0.0/1', '::/0', '2001::/16']) expect(() => validateEnv({ ...prod, TRUST_PROXY: bad })).toThrow(/TRUST_PROXY/);
+    for (const ok of ['1', '2', 'loopback', '10.0.0.0/8, 172.16.0.0/12', 'uniquelocal']) {
+      expect(() => validateEnv({ ...prod, TRUST_PROXY: ok })).not.toThrow();
+    }
+    validateEnv(base);
+  });
+
+  it('M06 review: OTP_DEV_ECHO is refused outside development and test (staging too)', () => {
+    expect(() => validateEnv({ ...base, NODE_ENV: 'staging', OTP_DEV_ECHO: 'true' })).toThrow('OTP_DEV_ECHO');
+    expect(() => validateEnv({ ...base, NODE_ENV: 'development', OTP_DEV_ECHO: 'true' })).not.toThrow();
+    validateEnv(base);
+  });
+
   it('requires TRUST_PROXY in production only', () => {
     expect(() => validateEnv({ ...prod, TRUST_PROXY: undefined })).toThrow(/TRUST_PROXY/);
     expect(() => validateEnv({ ...base, TRUST_PROXY: undefined })).not.toThrow();

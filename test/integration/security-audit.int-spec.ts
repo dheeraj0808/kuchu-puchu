@@ -21,7 +21,7 @@ import { UserStatus } from '../../src/users/models/user.model';
 import { RevokeSessionsHandler } from '../../src/users/revoke-sessions.handler';
 import { UsersService } from '../../src/users/users.service';
 import { createTestApp } from '../support/test-app';
-import { login as apiLogin, newDevice, openSession as openDirect } from '../support/auth-helpers';
+import { login as apiLogin, freshIp, newDevice, openSession as openDirect } from '../support/auth-helpers';
 import { clearTestKeys } from '../support/test-redis';
 
 interface Row {
@@ -35,9 +35,8 @@ interface Row {
 describe('M05 Security audit (MySQL + Redis)', () => {
   let app: NestExpressApplication;
   let sequelize: Sequelize;
-  let ipCounter = 0;
-  const ip = (): string =>
-    `198.18.${Math.floor(++ipCounter / 250)}.${ipCounter % 250}`;
+  // Random per run: the local test DB keeps OTP rows between runs, which count against per-IP caps.
+  const ip = freshIp;
 
   beforeAll(async () => {
     await clearTestKeys(process.env.REDIS_URL as string);

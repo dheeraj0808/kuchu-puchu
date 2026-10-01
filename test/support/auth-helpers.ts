@@ -20,12 +20,16 @@ export const indianMobile = (): string => `+9198${String(Math.floor(Math.random(
 
 export const uniqueEmail = (tag = 'user'): string => `${tag}.${randomUUID().slice(0, 8)}@example.com`;
 
-let ipCounter = 0;
-/** A fresh client IP per call, so per-IP limits never couple tests. */
+// Random start per run: the local test DB keeps otp_verifications rows, so a re-run must not reuse last run's IPs.
+let ipCounter = Math.floor(Math.random() * 60_000);
+/** A fresh client IP per call (from 198.18.0.0/15), so per-IP limits never couple tests or runs. */
 export const freshIp = (): string => {
-  ipCounter++;
-  return `198.18.${Math.floor(ipCounter / 250) % 250}.${(ipCounter % 250) + 1}`;
+  ipCounter = (ipCounter + 1) % 65_000;
+  return `198.${18 + (ipCounter % 2)}.${Math.floor(ipCounter / 500) % 250}.${(Math.floor(ipCounter / 2) % 250) + 1}`;
 };
+
+/** A random number outside the default SMS allowlist (+1 415 555 xxxx). */
+export const usMobile = (): string => `+1415555${String(Math.floor(Math.random() * 1e4)).padStart(4, '0')}`;
 
 export interface SignedIn {
   userId: string;

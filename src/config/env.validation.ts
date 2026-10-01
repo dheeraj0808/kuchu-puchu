@@ -343,14 +343,20 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
   }
 
   const isProd = validated.NODE_ENV === Environment.Production;
-  if (isProd && validated.OTP_DEV_ECHO) {
-    throw new Error('OTP_DEV_ECHO must not be enabled in production');
+  // Codes printed to stdout end up in the log pipeline: only on a developer's machine or in tests.
+  if (validated.OTP_DEV_ECHO && validated.NODE_ENV !== Environment.Development && validated.NODE_ENV !== Environment.Test) {
+    throw new Error('OTP_DEV_ECHO must not be enabled in production or staging');
   }
   if (isProd && !validated.CORS_ORIGINS) {
     throw new Error('CORS_ORIGINS must be set in production');
   }
   if (isProd && !validated.TRUST_PROXY) {
     throw new Error('TRUST_PROXY must be set in production');
+  }
+  // "true" makes req.ip the left-most X-Forwarded-For value, which the client controls, so every
+  // per-IP limit (OTP caps, throttles) could be bypassed. Production names the hop count or the proxy subnets.
+  if (isProd && validated.TRUST_PROXY && !isSafeTrustProxy(validated.TRUST_PROXY)) {
+    throw new Error('TRUST_PROXY in production must be a hop count (e.g. 1) or a list of proxy IPs/subnets, not "true"');
   }
   if (isProd && !validated.REDIS_URL) {
     throw new Error('REDIS_URL must be set in production');
@@ -380,6 +386,25 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
 
   validatedEnv = validated;
   return validated;
+}
+
+const TRUST_PROXY_NAMES = new Set(['loopback', 'linklocal', 'uniquelocal']);
+const IP_OR_CIDR = /^(\d{1,3}(\.\d{1,3}){3}|[0-9a-f:]+)(\/\d{1,3})?$/i;
+
+function isSafeTrustProxy(raw: string): boolean {
+  const value = raw.trim();
+  if (/^\d+$/.test(value)) return Number(value) >= 1 && Number(value) <= 5;
+  return value
+    .split(',')
+    .map((v) => v.trim())
+    .every((v) => v !== '' && (TRUST_PROXY_NAMES.has(v.toLowerCase()) || (IP_OR_CIDR.test(v) && !tooBroad(v))));
+}
+
+/** A prefix this wide (e.g. 0.0.0.0/1) would trust client-chosen addresses again. */
+function tooBroad(cidr: string): boolean {
+  const [ip, bits] = cidr.split('/');
+  if (bits === undefined) return false;
+  return Number(bits) < (ip.includes(':') ? 32 : 8);
 }
 
 function assertSecretsDistinct(env: EnvironmentVariables): void {

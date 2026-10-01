@@ -104,6 +104,10 @@ APP_ROLE=worker npm run start:prod   # production: node dist/main picks the role
 
 Every role refuses to start on an invalid environment, on MariaDB or MySQL older than 8.4, or when `APP_ROLE` names a different role than the entry file. The reason is always printed to stderr. On SIGTERM or SIGINT a process closes its HTTP server, DB pool and Redis connections and exits 0; if that takes longer than 10 s, it exits 1.
 
+### Sign-in codes in development (M06)
+
+SMS and email go through adapters in `src/infra/sms` and `src/infra/email`. Locally `SMS_PROVIDER=fake` and no `EMAIL_FROM`/`SES_REGION`, so nothing is sent; with `OTP_DEV_ECHO=true` (never in production) each code is printed to stdout as `[DEV ONLY] OTP for +91******3210: 123456`. Production refuses to boot until a real SMS provider exists (DLT registration) and needs `EMAIL_FROM` + `SES_REGION`. The auth routes are listed in `docs/modules/M06-gap.md` ("Mobile app changes").
+
 Errors go to Sentry only when `SENTRY_DSN` is set. Request headers, bodies, query strings, cookies and user details are never sent; only the opaque user id may be.
 
 ## CI

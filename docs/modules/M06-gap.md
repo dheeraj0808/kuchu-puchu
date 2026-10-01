@@ -13,38 +13,38 @@ Paths are relative to `backend/`. "Before" is the code at `93b3ff8`.
 
 | # | Spec item | Before | After | Where / how verified |
 |---|---|---|---|---|
-| T1 | `otp_verifications.identifier_hash CHAR(64)` = HMAC-SHA256(OTP_HASH_SECRET, "type:normalised") | **done** (`otp.service.ts` `hashIdentifier`) | | |
-| T2 | `channel ENUM(sms, email)` | **partial**: `identifier_type ENUM(email, phone)` | | |
-| T3 | `purpose ENUM(login, reauth)` | **missing** | | |
-| T4 | `otp_hash`, `attempts`, `expires_at`, `consumed_at`, `request_ip VARCHAR(45)` | **partial**: present; `request_ip` nullable; extra `user_id`, `max_attempts`, `updated_at` | | |
-| T5 | No `updated_at` | **missing** (has `updated_at`) | | |
-| T6 | Indexes `(identifier_hash, created_at)`, `(request_ip, created_at)` | **partial**: `(identifier_hash, identifier_type, created_at)` plus `expires_at`, `user_id` indexes | | |
-| T7 | `sessions.previous_token_hash` | **partial**: named `previous_refresh_token_hash` | | |
-| T8 | `device_id VARCHAR(100)`, `device_name VARCHAR(100)` | **partial**: VARCHAR(128), nullable | | |
-| T9 | `platform ENUM(android, ios)`, `app_version VARCHAR(20)` | **missing** | | |
-| T10 | `user_agent VARCHAR(255)` | **partial**: VARCHAR(512) | | |
-| T11 | `expires_at` sliding (+30 d per refresh) | **partial**: fixed `JWT_REFRESH_EXPIRES_IN` (7 d) | | |
-| T12 | `absolute_expires_at` = created_at + 90 d, never extended | **missing** | | |
-| T13 | `reauthenticated_at` | **missing** | | |
-| T14 | `revoked_reason VARCHAR(40)`: logout, logout_all, replaced, reuse_detected, restricted, deleted | **partial**: VARCHAR(64); values `replaced_by_new_login`, `refresh_token_reuse`, `account_restricted`, `account_deleted` | | |
-| T15 | Indexes `(user_id, revoked_at)`, `(user_id, device_id)` | **partial**: both, plus `expires_at` and a unique `refresh_token_hash` | | |
-| T16 | FK `sessions.user_id` → users, ON DELETE RESTRICT (guide §4.2) | **partial**: CASCADE | | |
+| T1 | `otp_verifications.identifier_hash CHAR(64)` = HMAC-SHA256(OTP_HASH_SECRET, "type:normalised") | **done** (`otp.service.ts` `hashIdentifier`) | [x] | `otp.service.ts` `hashIdentifier`; unit "hashes the identifier as HMAC-SHA256…" |
+| T2 | `channel ENUM(sms, email)` | **partial**: `identifier_type ENUM(email, phone)` | [x] | Migration `20261007000001-rebuild-otp-verifications`; `test/integration/auth.int-spec.ts` "otp_verifications is exactly the spec" |
+| T3 | `purpose ENUM(login, reauth)` | **missing** | [x] | Same migration and test |
+| T4 | `otp_hash`, `attempts`, `expires_at`, `consumed_at`, `request_ip VARCHAR(45)` | **partial**: present; `request_ip` nullable; extra `user_id`, `max_attempts`, `updated_at` | [x] | Same; `user_id`, `max_attempts` dropped; `request_ip` NOT NULL |
+| T5 | No `updated_at` | **missing** (has `updated_at`) | [x] | Same (model `updatedAt: false`) |
+| T6 | Indexes `(identifier_hash, created_at)`, `(request_ip, created_at)` | **partial**: `(identifier_hash, identifier_type, created_at)` plus `expires_at`, `user_id` indexes | [x] | Same test asserts exactly the two index sets |
+| T7 | `sessions.previous_token_hash` | **partial**: named `previous_refresh_token_hash` | [x] | Migration `20261007000002-rebuild-sessions`; `test/integration/auth.int-spec.ts` "sessions is exactly the spec" |
+| T8 | `device_id VARCHAR(100)`, `device_name VARCHAR(100)` | **partial**: VARCHAR(128), nullable | [x] | Same (NOT NULL; verify requires them) |
+| T9 | `platform ENUM(android, ios)`, `app_version VARCHAR(20)` | **missing** | [x] | Same |
+| T10 | `user_agent VARCHAR(255)` | **partial**: VARCHAR(512) | [x] | Same (cut to 255 on write) |
+| T11 | `expires_at` sliding (+30 d per refresh) | **partial**: fixed `JWT_REFRESH_EXPIRES_IN` (7 d) | [x] | `session.service.ts` `slidingExpiry`; `test/integration/auth.int-spec.ts` "sliding expiry extends…" |
+| T12 | `absolute_expires_at` = created_at + 90 d, never extended | **missing** | [x] | Same test: never moves, caps the slide, past it → 401 |
+| T13 | `reauthenticated_at` | **missing** | [x] | Column + `markReauthenticated`; step-up tests |
+| T14 | `revoked_reason VARCHAR(40)`: logout, logout_all, replaced, reuse_detected, restricted, deleted | **partial**: VARCHAR(64); values `replaced_by_new_login`, `refresh_token_reuse`, `account_restricted`, `account_deleted` | [x] | `SessionRevokeReason` = the six spec values; tests assert `replaced`, `reuse_detected`, `deleted` |
+| T15 | Indexes `(user_id, revoked_at)`, `(user_id, device_id)` | **partial**: both, plus `expires_at` and a unique `refresh_token_hash` | [x] | Same migration and test (extra indexes dropped) |
+| T16 | FK `sessions.user_id` → users, ON DELETE RESTRICT (guide §4.2) | **partial**: CASCADE | [x] | Migration (`ON DELETE RESTRICT`) |
 
 ## Endpoints (under `/api/v1`)
 
 | # | Endpoint | Before | After | Where / how verified |
 |---|---|---|---|---|
-| E1 | `POST /auth/otp/request` `{channel, identifier}`, always the same 200 | **partial**: `POST /auth/request-otp` `{identifierType, identifier}`; banned users get no code but the same 200 | | |
-| E2 | `POST /auth/otp/verify` `{channel, identifier, otp, deviceId, deviceName, platform, appVersion}` → `{accessToken, refreshToken, expiresIn, user, isNewUser, nextStep}` | **partial**: `POST /auth/verify-otp`; device fields optional, no platform/appVersion; response has `tokenType`, `accessTokenExpiresIn`, `refreshTokenExpiresAt`, no `isNewUser`/`nextStep` | | |
-| E3 | `POST /auth/refresh` `{refreshToken}` → new pair | **partial**: rotates; reuse revokes only that session; error `INVALID_REFRESH_TOKEN` (not in Appendix C) | | |
-| E4 | `POST /auth/logout` `{refreshToken}`, always 200 | **done** | | |
-| E5 | `POST /auth/logout-all` | **done** | | |
-| E6 | `GET /auth/me` account summary + `nextStep` | **partial**: no `nextStep` | | |
-| E7 | `GET /auth/sessions` | **missing** | | |
-| E8 | `DELETE /auth/sessions/:sessionId` (404 if not the caller's) | **missing** | | |
-| E9 | `POST /auth/reauth/request` | **missing** | | |
-| E10 | `POST /auth/reauth/verify` `{otp}` | **missing** | | |
-| E11 | Old routes `/auth/request-otp`, `/auth/verify-otp` removed, no aliases | — | | |
+| E1 | `POST /auth/otp/request` `{channel, identifier}`, always the same 200 | **partial**: `POST /auth/request-otp` `{identifierType, identifier}`; banned users get no code but the same 200 | [x] | `auth.controller.ts`; `test/integration/auth.int-spec.ts` "identical /otp/request responses…" |
+| E2 | `POST /auth/otp/verify` `{channel, identifier, otp, deviceId, deviceName, platform, appVersion}` → `{accessToken, refreshToken, expiresIn, user, isNewUser, nextStep}` | **partial**: `POST /auth/verify-otp`; device fields optional, no platform/appVersion; response has `tokenType`, `accessTokenExpiresIn`, `refreshTokenExpiresAt`, no `isNewUser`/`nextStep` | [x] | `test/integration/auth.int-spec.ts` "verify creates the user and returns {…}" (exact key set) |
+| E3 | `POST /auth/refresh` `{refreshToken}` → new pair | **partial**: rotates; reuse revokes only that session; error `INVALID_REFRESH_TOKEN` (not in Appendix C) | [x] | `test/integration/auth.int-spec.ts` refresh tests; response keys `accessToken, expiresIn, refreshToken` |
+| E4 | `POST /auth/logout` `{refreshToken}`, always 200 | **done** | [x] | `test/integration/auth.int-spec.ts` "logout is always 200…" |
+| E5 | `POST /auth/logout-all` | **done** | [x] | Same test (current session included) |
+| E6 | `GET /auth/me` account summary + `nextStep` | **partial**: no `nextStep` | [x] | `test/integration/auth.int-spec.ts` "verify creates the user…" asserts `nextStep: selfie` on `/auth/me` |
+| E7 | `GET /auth/sessions` | **missing** | [x] | `test/integration/auth.int-spec.ts` "GET /auth/sessions…" |
+| E8 | `DELETE /auth/sessions/:sessionId` (404 if not the caller's) | **missing** | [x] | `test/integration/auth.int-spec.ts` "DELETE /auth/sessions/:id…" (other user's, unknown, malformed → 404) |
+| E9 | `POST /auth/reauth/request` | **missing** | [x] | `test/integration/auth.int-spec.ts` step-up tests |
+| E10 | `POST /auth/reauth/verify` `{otp}` | **missing** | [x] | Same |
+| E11 | Old routes `/auth/request-otp`, `/auth/verify-otp` removed, no aliases | — | [x] | `test/app.e2e-spec.ts` "exactly the 10 auth endpoints are documented; the old routes are gone" (Swagger paths + 404) |
 
 There is no separate `/me` route in the code; `GET /auth/me` is the spec's endpoint E6 and stays (with a new field).
 
@@ -52,35 +52,35 @@ There is no separate `/me` route in the code; `GET /auth/me` is the spec's endpo
 
 | # | Rule | Before | After | Where / how verified |
 |---|---|---|---|---|
-| R1 | 6 digits, CSPRNG | **done** (`crypto.util.ts` `randomInt`) | | |
-| R2 | Valid 5 min, 5 attempts, atomic `attempts + 1 WHERE attempts < max` | **done** | | |
-| R3 | Constant-time compare | **done** (`timingSafeEqualHex`) | | |
-| R4 | Consumed once by a conditional update | **done** | | |
-| R5 | One active code per identifier (a new code expires older ones) | **partial**: expires older codes, but two parallel requests can both pass the cooldown check and leave two active codes | | |
-| R6 | 60 s cooldown → 429 `OTP_COOLDOWN` + `retryAfterSeconds` | **partial**: DB read, racy (see R5) | | |
-| R7 | 5 codes / hour per identifier; 20 / hour per IP (config) | **partial**: per-IP cap is a constant, not `OTP_MAX_PER_IP_PER_HOUR` | | |
-| R8 | HTTP throttle: request 5/min per IP, verify 10/min per IP | **done** | | |
-| R9 | No enumeration: same 200 for unknown, known, banned, deleted; same 401 `OTP_INVALID` for every verify failure | **partial**: same body, but banned users skip the cooldown and caps, so a second request within 60 s answers 200 for them and 429 for others | | |
-| R10 | Banned/suspended + correct code → 403 `ACCOUNT_RESTRICTED`, no tokens | **partial**: banned users never receive a code, so the rule can't be reached | | |
-| R11 | SMS country allowlist (`OTP_SMS_ALLOWED_COUNTRIES`, +91) | **missing** | | |
-| R12 | Daily global SMS budget (`SMS_DAILY_BUDGET`, Redis per IST date), alert at 80 %, stop at 100 % | **missing** | | |
-| R13 | `SmsProvider` / `EmailProvider` in `src/infra`; SES + fake email; fake SMS; production refuses `SMS_PROVIDER` unset or `fake`; `OTP_DEV_ECHO` refused in production | **partial**: one `DevOtpDeliveryService` that throws in production; echo refused in production | | |
-| R14 | Access token HS256, 15 min, claims `{sub, sid, iss, aud}`; role from DB | **partial**: token also carries `role` (ignored by the strategy, read from the session cache) | | |
-| R15 | Refresh token `<sessionId>.<64-char secret>`, stored as HMAC, rotated on every use | **done** (secret regex accepts 43–128 chars) | | |
-| R16 | Reuse of the previous token → revoke ALL sessions (`reuse_detected`), `auth.token_reuse`, security event, 401 `UNAUTHORIZED` | **partial**: revokes that one session; no event; `INVALID_REFRESH_TOKEN` | | |
-| R17 | Concurrent refresh loser treated as reuse | **missing**: loser gets a plain 401 | | |
-| R18 | Sliding 30 d / absolute 90 d | **missing** | | |
-| R19 | Same deviceId replaces the live session (`replaced`); unseen deviceId → `auth.new_device` | **partial**: replaces; no event; two parallel logins on one device can leave two live sessions | | |
-| R20 | Logout always 200; logout-all revokes every session incl. current; every revoke deletes the Redis cache key before returning | **done** | | |
-| R21 | `GET /auth/sessions`: name, platform, app version, last used, `current`; other sessions' IPs masked | **missing** | | |
-| R22 | Step-up: reauth OTP to own verified identifier; `reauthenticated_at`; `RequireReauth` → 403 `REAUTH_REQUIRED` unless within 10 min; on `DELETE /account` | **missing** (`DELETE /account` has no step-up) | | |
-| R23 | `OnboardingService.nextStep`: selfie → photos → profile → preferences → done, provider per step; selfie/photos stubs | **partial**: `OnboardingStatusService` stub returns `selfie` | | |
-| R24 | `VerifiedUserGuard` uses it; 403 `ONBOARDING_INCOMPLETE` + `details.nextStep`; not applied to routes yet | **partial**: uses the old stub | | |
-| R25 | `user.registered` published in the registration transaction (M03 F1) | **missing**: security event only | | |
-| R26 | OTP cleanup hourly (> 24 h); session cleanup daily 21:00 UTC (expired, or revoked > 30 d), batches of 5,000 | **missing** (deferred from M03) | | |
-| R27 | Security events: otp requested/verified/failed, login, new device, reuse, logout, logout-all, session revoked, reauth ok/failed, budget and country blocks; identifiers only via `hashIdentifier()` | **partial**: no new-device, reauth, budget or country events; `otp.verified` unused | | |
+| R1 | 6 digits, CSPRNG | **done** (`crypto.util.ts` `randomInt`) | [x] | Unchanged (`randomInt`) |
+| R2 | Valid 5 min, 5 attempts, atomic `attempts + 1 WHERE attempts < max` | **done** | [x] | `test/integration/auth.int-spec.ts` "6th attempt fails even with the right code" (attempts = 5 in the row) |
+| R3 | Constant-time compare | **done** (`timingSafeEqualHex`) | [x] | `timingSafeEqualHex`; dummy compare on not-found |
+| R4 | Consumed once by a conditional update | **done** | [x] | `test/integration/auth.int-spec.ts` "race: two parallel verifies of one code → exactly one success" |
+| R5 | One active code per identifier (a new code expires older ones) | **partial**: expires older codes, but two parallel requests can both pass the cooldown check and leave two active codes | [x] | Redis `SET NX` cooldown serialises issuance; `test/integration/auth.int-spec.ts` "…a new code expires the older one" (1 active row) |
+| R6 | 60 s cooldown → 429 `OTP_COOLDOWN` + `retryAfterSeconds` | **partial**: DB read, racy (see R5) | [x] | `test/integration/auth.int-spec.ts` "cooldown → 429 OTP_COOLDOWN with retryAfterSeconds" |
+| R7 | 5 codes / hour per identifier; 20 / hour per IP (config) | **partial**: per-IP cap is a constant, not `OTP_MAX_PER_IP_PER_HOUR` | [x] | `OTP_MAX_PER_IP_PER_HOUR`; `test/integration/auth.int-spec.ts` "hourly per-identifier cap…", "per-IP cap…" |
+| R8 | HTTP throttle: request 5/min per IP, verify 10/min per IP | **done** | [x] | `test/integration/auth.int-spec.ts` "HTTP throttles…" |
+| R9 | No enumeration: same 200 for unknown, known, banned, deleted; same 401 `OTP_INVALID` for every verify failure | **partial**: same body, but banned users skip the cooldown and caps, so a second request within 60 s answers 200 for them and 429 for others | [x] | No account lookup in request; `test/integration/auth.int-spec.ts` "identical /otp/request responses…" (first and second request) |
+| R10 | Banned/suspended + correct code → 403 `ACCOUNT_RESTRICTED`, no tokens | **partial**: banned users never receive a code, so the rule can't be reached | [x] | `test/integration/auth.int-spec.ts` "banned or suspended user with the CORRECT code → 403…" |
+| R11 | SMS country allowlist (`OTP_SMS_ALLOWED_COUNTRIES`, +91) | **missing** | [x] | `otp-delivery.service.ts`; `test/integration/auth.int-spec.ts` "a number outside OTP_SMS_ALLOWED_COUNTRIES…"; unit spec |
+| R12 | Daily global SMS budget (`SMS_DAILY_BUDGET`, Redis per IST date), alert at 80 %, stop at 100 % | **missing** | [x] | `test/integration/auth.int-spec.ts` "daily SMS budget…"; unit spec (one alert each at 80 % and 100 %) |
+| R13 | `SmsProvider` / `EmailProvider` in `src/infra`; SES + fake email; fake SMS; production refuses `SMS_PROVIDER` unset or `fake`; `OTP_DEV_ECHO` refused in production | **partial**: one `DevOtpDeliveryService` that throws in production; echo refused in production | [x] | `src/infra/sms`, `src/infra/email`; `sms.spec.ts`; env spec "production refuses SMS_PROVIDER unset or fake" |
+| R14 | Access token HS256, 15 min, claims `{sub, sid, iss, aud}`; role from DB | **partial**: token also carries `role` (ignored by the strategy, read from the session cache) | [x] | `token.service.ts`; unit + `test/integration/auth.int-spec.ts` assert the claim set exactly |
+| R15 | Refresh token `<sessionId>.<64-char secret>`, stored as HMAC, rotated on every use | **done** (secret regex accepts 43–128 chars) | [x] | Secret must be exactly 64 chars; HMAC only ("no plaintext OTP or token is stored") |
+| R16 | Reuse of the previous token → revoke ALL sessions (`reuse_detected`), `auth.token_reuse`, security event, 401 `UNAUTHORIZED` | **partial**: revokes that one session; no event; `INVALID_REFRESH_TOKEN` | [x] | `test/integration/auth.int-spec.ts` "reuse of an old token → every session revoked…" |
+| R17 | Concurrent refresh loser treated as reuse | **missing**: loser gets a plain 401 | [x] | `test/integration/auth.int-spec.ts` "race: two parallel refreshes of one token…" |
+| R18 | Sliding 30 d / absolute 90 d | **missing** | [x] | See T11/T12 |
+| R19 | Same deviceId replaces the live session (`replaced`); unseen deviceId → `auth.new_device` | **partial**: replaces; no event; two parallel logins on one device can leave two live sessions | [x] | User row lock in the login transaction; `test/integration/auth.int-spec.ts` "same deviceId login replaces that session…" |
+| R20 | Logout always 200; logout-all revokes every session incl. current; every revoke deletes the Redis cache key before returning | **done** | [x] | Unchanged; logout / revoke tests check the next request is 401 |
+| R21 | `GET /auth/sessions`: name, platform, app version, last used, `current`; other sessions' IPs masked | **missing** | [x] | `SessionResponse.fromModel`, `maskIp`; `test/integration/auth.int-spec.ts` "GET /auth/sessions…" |
+| R22 | Step-up: reauth OTP to own verified identifier; `reauthenticated_at`; `RequireReauth` → 403 `REAUTH_REQUIRED` unless within 10 min; on `DELETE /account` | **missing** (`DELETE /account` has no step-up) | [x] | `RequireReauthGuard` on `DELETE /account`; `test/integration/auth.int-spec.ts` step-up tests (no reauth, wrong code, other session, > 10 min) |
+| R23 | `OnboardingService.nextStep`: selfie → photos → profile → preferences → done, provider per step; selfie/photos stubs | **partial**: `OnboardingStatusService` stub returns `selfie` | [x] | `src/common/onboarding/*`; `onboarding.service.spec.ts` |
+| R24 | `VerifiedUserGuard` uses it; 403 `ONBOARDING_INCOMPLETE` + `details.nextStep`; not applied to routes yet | **partial**: uses the old stub | [x] | `access.guards.ts`; `access.guards.spec.ts`; not applied to routes |
+| R25 | `user.registered` published in the registration transaction (M03 F1) | **missing**: security event only | [x] | Published in the login transaction; `test/integration/auth.int-spec.ts` asserts the outbox row |
+| R26 | OTP cleanup hourly (> 24 h); session cleanup daily 21:00 UTC (expired, or revoked > 30 d), batches of 5,000 | **missing** (deferred from M03) | [x] | `auth-cleanup.jobs.ts` (`7 * * * *`, `0 21 * * *`, batches of 5,000); `test/integration/auth.int-spec.ts` cleanup tests; `entrypoints.int-spec.ts` (worker registers both) |
+| R27 | Security events: otp requested/verified/failed, login, new device, reuse, logout, logout-all, session revoked, reauth ok/failed, budget and country blocks; identifiers only via `hashIdentifier()` | **partial**: no new-device, reauth, budget or country events; `otp.verified` unused | [x] | New types in `security-event.model.ts`; asserted per flow in `auth.int-spec.ts` / `auth.service.spec.ts` |
 
-## Plan
+## Plan (as built)
 
 - Two migrations rebuild `otp_verifications` and `sessions` to the spec. Dev has 0 users, so existing rows are deleted and the tables recreated (counts printed by the migration).
 - New error handling: refresh failures return Appendix C `UNAUTHORIZED`; `INVALID_REFRESH_TOKEN` is removed.
@@ -106,6 +106,7 @@ The mobile app (`mobile-app/src/api/auth.ts`, `types.ts`, `account.ts`) still ca
 | Step-up request | (mocked: no body) | `POST /auth/reauth/request` `{channel?: 'sms'\|'email'}` → `{message, channel, expiresInSeconds, resendAfterSeconds}`; default phone if verified, else email |
 | Step-up verify | (mocked: `{code}` → `{validForSeconds}`) | `POST /auth/reauth/verify` `{otp}` → `{reauthenticatedAt, validForSeconds: 600}`. A wrong code is 401 `OTP_INVALID`: the app must not treat that 401 as an expired session |
 | Delete account | `DELETE /account` | Now needs a step-up within 10 min, else 403 `REAUTH_REQUIRED` |
+| Device fields | — | `deviceId` must match `^[A-Za-z0-9._:-]{1,100}$` (use the same value as `X-Device-Id`), `deviceName` 1–100 chars, `appVersion` `^[0-9A-Za-z.+-]{1,20}$`, `platform` `android`\|`ios`. Anything else is 400 `VALIDATION_ERROR` |
 | Types | `UserStatus` lacks `banned` | `banned` exists since M04 |
 
 ## Deferred
@@ -120,3 +121,58 @@ The mobile app (`mobile-app/src/api/auth.ts`, `types.ts`, `account.ts`) still ca
 | Null identifiers of soft-deleted rows (from fix(M04)) | **M07** |
 | Selfie and photo onboarding providers | **M11**, **M12** |
 | Applying `VerifiedUserGuard` to routes | M11+ |
+| Security review M2: the global SMS budget can be used up by requests for random +91 numbers, which stops SMS sign-in for everyone until IST midnight. Options: reserve a share for identifiers of existing verified users (same response), and/or a per-/24 hourly cap | **Owner decision** |
+| Security review M3: email `+tag` / Gmail-dot aliases get their own cooldown and caps, and there is no email budget | **Owner decision** (changes M04 normalisation) |
+| Security review L1: requesting codes for a victim every 60 s expires their pending code and uses their hourly cap; login and step-up share the cooldown. Keying per (identifier, purpose) conflicts with "one active code per identifier" | **Owner decision** |
+| Security review L2: no cap on live sessions per user; the device list shows the 50 most recently used | **Owner decision** |
+| Security review L4: every invalid refresh writes a security event (rate-limited per IP only); dedupe per IP + reason | M15 (admin audit view) |
+
+## Deviations and notes
+
+- **`auth.new_device` is not published on the registration login.** A brand-new account has no other device to warn. Every later sign-in from an unseen `deviceId` publishes it. "Unseen" means no retained `sessions` row; rows are deleted 30 days after revocation or on expiry, so a device unused for longer counts as new again.
+- **Reuse is detected one rotation back** (the spec stores only `previous_token_hash`). A token two or more rotations old gets a plain 401 without the revoke-all. Treating every mismatch as reuse would let anyone who knows a session id sign the user out everywhere.
+- **Refresh failures return `UNAUTHORIZED`** (Appendix C). `INVALID_REFRESH_TOKEN` was removed.
+- **`DELETE /auth/sessions/:id` returns `NOT_FOUND`**, a pre-existing code that is not in Appendix C (like `VALIDATION_ERROR` details for the step-up channel). A malformed id is the same 404.
+- **`GET /auth/me` keeps `profile`** (the app reads it) and adds `nextStep`.
+- **`user_agent` / `ip_address` are NOT NULL as in the spec**, stored as `''` when the request has none. Requests without an IP share one per-IP bucket; production requires `TRUST_PROXY`, so `req.ip` is always set.
+- **Cooldown in Redis** (`kp:otp-cooldown:<identifier hash>`, `SET NX EX 60`), caps as indexed DB counts. A cap 429 or a failed delivery hands the cooldown back.
+- **Session cleanup has no index** on `expires_at` / `revoked_at` (the spec lists two index sets only). The job walks the primary key with plain reads and deletes by id, once a day.
+- **Review hardening beyond the decisions:** production refuses `TRUST_PROXY=true` (a client-chosen `X-Forwarded-For` would bypass every per-IP limit); `OTP_DEV_ECHO` is refused outside development and test (staging included).
+- **New package:** `@aws-sdk/client-sesv2`, for the SES email provider (guide §3.2 lists SES). `npm audit` shows the same 9 pre-existing findings before and after.
+
+## Data changed by the migrations
+
+| Database | `otp_verifications` deleted | `sessions` deleted | Other |
+|---|---|---|---|
+| dev `kuchu_puchu` | 0 | 0 | `users.is_active` dropped (fix(M04)); 0 users |
+| test `kuchu_puchu_test` | 69 | 545 | Rows left by earlier test runs |
+
+## "Done when"
+
+| # | Criterion | Status | How verified |
+|---|---|---|---|
+| D1 | No plaintext OTP or token anywhere in DB or logs | [x] | DB: `auth.int-spec.ts` "no plaintext OTP or token is stored" (dumps both tables, looks for the refresh secret, the access token and the email; `otp_hash` is 64-hex). Logs: `test/support/log-scan.ts` runs after every integration and e2e file and captures pino (debug level), Nest's Logger, console and stdout/stderr. It fails the file on any OTP or identifier handed to the fake providers, a JWT, a refresh token, an email or a phone number. Final run: 0 hits in 816 integration lines and 401 e2e lines; a self-check test proves it catches planted leaks and that request logs are in the capture |
+| D2 | Race tests: two verifies of one code, two refreshes of one token | [x] | "race: two parallel verifies of one code → exactly one success" (200 + 401, one user row). "race: two parallel refreshes of one token → one success; the other is reuse…" (200 + 401, every session `reuse_detected`, the winner's new token and the other device both 401, one `auth.token_reuse` row) |
+| D3 | Reuse detection revokes all sessions | [x] | "reuse of an old token → every session revoked, auth.token_reuse published, security event, 401 UNAUTHORIZED" |
+| D4 | Banned user gets an identical OTP response | [x] | "identical /otp/request responses for unknown, known, banned and deleted identifiers (status and body), first and second request"; and "banned or suspended user with the CORRECT code → 403 ACCOUNT_RESTRICTED, no tokens, no session" |
+
+## Review
+
+Two reviewers ran in parallel, for 2 rounds.
+
+**Spec audit.** Round 1: 1 major, 4 minor, 4 nits.
+- Fixed:
+  - Major: the integration tests could not be re-run within an hour (fixed test IPs and numbers against OTP rows the local test DB keeps). Test IPs and numbers are now random per run; 3 back-to-back full runs passed.
+  - Minor: a cap 429 now hands the cooldown back.
+  - Minor: the checklist is filled in.
+  - Nit: the device-field formats are now in the mobile table.
+  - Nit: the log scan also remembers national-format phone numbers.
+- Recorded as notes: reuse is detected only one rotation back; `NOT_FOUND` is not in Appendix C; requests without an IP share one bucket; session cleanup has no index.
+- Round 2: every fix holds. The only gap it raised (`0.0.0.0/0` as `TRUST_PROXY`) was already closed.
+
+**Security review.** Round 1: no critical or high findings; 3 medium and 4 low.
+- Fixed:
+  - M1: production refused only an unset `TRUST_PROXY`. It now refuses anything that would trust a client-chosen `X-Forwarded-For`: `true`, `0`, `*`, and prefixes shorter than /8 (IPv4) or /32 (IPv6).
+  - L3: `OTP_DEV_ECHO` is refused in staging too.
+- Sent to the owner (see Deferred): M2 (anyone can use up the SMS budget), M3 (email aliases), L1 (code spam can lock a user out of sign-in), L2 (no session cap), L4 (invalid refreshes can flood the audit log).
+- Round 2: M1 and L3 are closed, and the cooldown change adds no bypass. None of the deferred items blocks the commit; M2 should be settled before real SMS goes live.

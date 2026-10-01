@@ -109,11 +109,14 @@ export class OtpService {
     const now = new Date();
     const hourAgo = new Date(now.getTime() - ONE_HOUR_MS);
     const identifierWhere = { identifierHash, createdAt: { [Op.gt]: hourAgo } };
+    // A cap 429 hands the cooldown back: no code was issued, so there is nothing to wait for.
     if ((await this.otpModel.count({ where: identifierWhere })) >= cfg.maxRequestsPerHour) {
+      await releaseCooldown();
       throw await this.tooManyRequests(identifierWhere, now);
     }
     const ipWhere = { requestIp: input.requestIp, createdAt: { [Op.gt]: hourAgo } };
     if ((await this.otpModel.count({ where: ipWhere })) >= cfg.maxRequestsPerIpPerHour) {
+      await releaseCooldown();
       throw await this.tooManyRequests(ipWhere, now);
     }
 

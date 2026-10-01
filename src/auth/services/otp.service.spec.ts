@@ -114,8 +114,11 @@ describe('OtpService', () => {
     it('20 codes in the last hour from the IP (OTP_MAX_PER_IP_PER_HOUR) → 429', async () => {
       const { service, model } = setup();
       model.count.mockResolvedValueOnce(0).mockResolvedValueOnce(20);
+      const { redis } = { redis: (service as unknown as { redis: { del: jest.Mock } }).redis };
       await expect(service.issue(issueInput(service))).rejects.toMatchObject({ code: ErrorCode.TooManyRequests });
       expect(model.count.mock.calls[1][0].where).toMatchObject({ requestIp: '203.0.113.5' });
+      // No code was issued, so the cooldown is handed back.
+      expect(redis.del).toHaveBeenCalledWith(otpCooldownKey(hashOf(service)));
     });
 
     it('expires every older active code of the identifier before inserting (one active code)', async () => {
