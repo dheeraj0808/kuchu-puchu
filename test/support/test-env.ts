@@ -19,6 +19,9 @@ export function applyTestEnv(): void {
   // Codes are read from the fake providers; never echoed to stdout.
   process.env.OTP_DEV_ECHO = 'false';
   process.env.SMS_PROVIDER = 'fake';
+  // Liveness results come from the fake; tests switch its outcome per case.
+  process.env.FACE_PROVIDER = 'fake';
+  process.env.FACE_FAKE_OUTCOME = 'approve';
   delete process.env.EMAIL_FROM;
   delete process.env.SES_REGION;
 }

@@ -1,4 +1,7 @@
 /**
+ * Which settings GET /app/config shows is decided there (CatalogService), by
+ * a fixed list, never by this registry.
+ *
  * Every runtime setting (guide M08: app_settings, "the only way code reads
  * tunable limits"). Each key has a parser that validates a stored or new
  * value and a default used when no row exists. Keys are a closed set: code
@@ -13,8 +16,6 @@ interface SettingDefinition<T> {
   default: T;
   /** Returns the value as T, or throws SettingValueError with a short reason. */
   parse(value: unknown): T;
-  /** Shown in GET /app/config. */
-  public?: boolean;
 }
 
 const int = (min: number, max: number, fallback: number): SettingDefinition<number> => ({
@@ -27,9 +28,8 @@ const int = (min: number, max: number, fallback: number): SettingDefinition<numb
   },
 });
 
-const bool = (fallback: boolean, isPublic = false): SettingDefinition<boolean> => ({
+const bool = (fallback: boolean): SettingDefinition<boolean> => ({
   default: fallback,
-  public: isPublic,
   parse(value) {
     if (typeof value !== 'boolean') throw new SettingValueError('must be true or false');
     return value;
@@ -39,7 +39,6 @@ const bool = (fallback: boolean, isPublic = false): SettingDefinition<boolean> =
 const VERSION = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;
 const version = (fallback: string): SettingDefinition<string> => ({
   default: fallback,
-  public: true,
   parse(value) {
     if (typeof value !== 'string' || !VERSION.test(value)) throw new SettingValueError('must be a version such as 1.4.0');
     return value;
@@ -53,16 +52,16 @@ function record<T extends Record<string, unknown>>(
 ): SettingDefinition<T> {
   return {
     default: fallback,
-    public: true,
     parse(value) {
       if (value === null || typeof value !== 'object' || Array.isArray(value)) throw new SettingValueError('must be an object');
       const input = value as Record<string, unknown>;
-      const extra = Object.keys(input).filter((k) => !(k in fields));
-      if (extra.length > 0) throw new SettingValueError(`unknown field ${extra[0]}`);
+      // Own keys only: "__proto__", "constructor" and friends are unknown fields like any other.
+      const extra = Reflect.ownKeys(input).filter((k) => typeof k !== 'string' || !Object.hasOwn(fields, k));
+      if (extra.length > 0) throw new SettingValueError(`unknown field ${String(extra[0]).slice(0, 32)}`);
       const out = {} as T;
-      for (const key of Object.keys(fields) as Array<keyof T>) {
-        if (!(key in input)) throw new SettingValueError(`missing field ${String(key)}`);
-        out[key] = fields[key](input[key as string]);
+      for (const key of Object.keys(fields) as Array<keyof T & string>) {
+        if (!Object.hasOwn(input, key)) throw new SettingValueError(`missing field ${key}`);
+        out[key] = fields[key](input[key]);
       }
       return out;
     },
@@ -74,16 +73,26 @@ const flag = (v: unknown): boolean => {
   return v;
 };
 
-const HTTPS_URL = /^https:\/\/[^\s/$.?#][^\s]{0,300}$/;
 const EMAIL = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/;
+const HOSTNAME = /^(?=.{4,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/;
+/** https only, a real host name (no IPs, no "localhost"), no user:password@, at most 300 chars. */
 const httpsUrlOrNull = (v: unknown): string | null => {
   if (v === null) return null;
-  if (typeof v !== 'string' || !HTTPS_URL.test(v)) throw new SettingValueError('links must be https:// URLs or null');
-  return v;
+  const bad = new SettingValueError('links must be https:// URLs on a public host name, or null');
+  if (typeof v !== 'string' || v.length > 300) throw bad;
+  let url: URL;
+  try {
+    url = new URL(v);
+  } catch {
+    throw bad;
+  }
+  if (url.protocol !== 'https:' || url.username || url.password || !HOSTNAME.test(url.hostname)) throw bad;
+  return url.toString();
 };
+/** A role mailbox such as support@…, never a person's address. */
 const emailOrNull = (v: unknown): string | null => {
   if (v === null) return null;
-  if (typeof v !== 'string' || !EMAIL.test(v)) throw new SettingValueError('must be an email address or null');
+  if (typeof v !== 'string' || v.length > 254 || !EMAIL.test(v)) throw new SettingValueError('must be an email address or null');
   return v;
 };
 
@@ -110,7 +119,7 @@ export const SETTINGS = {
   'preferences.default_distance_km': int(1, 20_000, 50),
   'app.min_version.android': version('1.0.0'),
   'app.min_version.ios': version('1.0.0'),
-  'app.maintenance': bool(false, true),
+  'app.maintenance': bool(false),
   'app.feature_flags': record<PublicFeatureFlags>(
     { voiceVideoCalls: flag, contactExchange: flag, idVerification: flag },
     { voiceVideoCalls: false, contactExchange: false, idVerification: false },
@@ -141,6 +150,9 @@ export function defaultSettings(): SettingValues {
 
 /** Rules across keys, checked on every set() against the values it would produce. */
 export function checkInvariants(values: SettingValues): void {
+  if (values['profile.min_interests_for_completion'] > values['profile.max_interests']) {
+    throw new SettingValueError('profile.min_interests_for_completion must not exceed profile.max_interests');
+  }
   const min = values['preferences.min_distance_km'];
   const max = values['preferences.max_distance_km'];
   const fallback = values['preferences.default_distance_km'];

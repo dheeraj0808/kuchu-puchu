@@ -27,6 +27,25 @@ export enum AppRole {
   Worker = 'worker',
 }
 
+/** FACE_PROVIDER values (M11). */
+export enum FaceProviderName {
+  Rekognition = 'rekognition',
+  Fake = 'fake',
+}
+
+/** What the fake liveness provider answers (FACE_FAKE_OUTCOME; tests switch it per case). */
+export enum FakeFaceOutcome {
+  Approve = 'approve',
+  Review = 'review',
+  Reject = 'reject',
+  NoFace = 'no_face',
+  MultipleFaces = 'multiple_faces',
+  PoorQuality = 'poor_quality',
+  Pending = 'pending',
+  Expired = 'expired',
+  Error = 'error',
+}
+
 /** The role to run when APP_ROLE is not set explicitly. */
 export function resolveAppRole(env: { APP_ROLE?: AppRole }): AppRole {
   return env.APP_ROLE ?? AppRole.Api;
@@ -263,6 +282,40 @@ export class EnvironmentVariables {
   /** Directory for the local storage fake (development / test; not in Appendix D). Default: the OS temp dir. */
   @IsOptional() @IsString() STORAGE_LOCAL_DIR?: string;
 
+  // Verification (M11, Appendix D)
+  /** Liveness provider. Unset outside production means "fake"; production refuses unset or "fake" (checked below). */
+  @IsOptional()
+  @IsEnum(FaceProviderName)
+  FACE_PROVIDER?: FaceProviderName;
+
+  /** Liveness score (0–100) at or above which one clear face is approved automatically. */
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  FACE_AUTO_APPROVE_SCORE: number = 90;
+
+  /** Below this liveness score the attempt is rejected; between it and the auto-approve score it goes to review. */
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  FACE_REVIEW_SCORE: number = 70;
+
+  /** A session not completed within this many seconds is expired by the hourly job (not in Appendix D). */
+  @IsInt()
+  @Min(60)
+  @Max(3600)
+  FACE_SESSION_TTL_SECONDS: number = 600;
+
+  /** Per provider call; a slower answer is a provider failure (503, attempt not counted). Not in Appendix D. */
+  @IsInt()
+  @Min(500)
+  @Max(30_000)
+  FACE_PROVIDER_TIMEOUT_MS: number = 8000;
+
+  /** The fake provider's result for every session (development and test only; not in Appendix D). */
+  @IsEnum(FakeFaceOutcome)
+  FACE_FAKE_OUTCOME: FakeFaceOutcome = FakeFaceOutcome.Approve;
+
   // Push (consumed by later modules)
   @IsOptional() @IsString() FCM_PROJECT_ID?: string;
   @IsOptional() @IsString() FCM_CLIENT_EMAIL?: string;
@@ -404,6 +457,15 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
   }
   if (isProd && (!validated.EMAIL_FROM || !validated.SES_REGION)) {
     throw new Error('EMAIL_FROM and SES_REGION must be set in production');
+  }
+  if (isProd && (!validated.FACE_PROVIDER || validated.FACE_PROVIDER === FaceProviderName.Fake)) {
+    throw new Error('FACE_PROVIDER must name a real liveness provider in production (not unset or "fake")');
+  }
+  if (validated.FACE_PROVIDER === FaceProviderName.Rekognition && !validated.AWS_REGION) {
+    throw new Error('FACE_PROVIDER=rekognition needs AWS_REGION');
+  }
+  if (validated.FACE_REVIEW_SCORE >= validated.FACE_AUTO_APPROVE_SCORE) {
+    throw new Error('FACE_REVIEW_SCORE must be below FACE_AUTO_APPROVE_SCORE');
   }
   if (validated.SESSION_SLIDING_DAYS > validated.SESSION_MAX_DAYS) {
     throw new Error('SESSION_SLIDING_DAYS must not exceed SESSION_MAX_DAYS');

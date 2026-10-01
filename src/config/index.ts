@@ -4,6 +4,7 @@ import jwtConfig from './jwt.config';
 import otpConfig from './otp.config';
 import outboxConfig from './outbox.config';
 import securityConfig from './security.config';
+import { verificationConfig } from './verification.config';
 import { alertsConfig, awsConfig, fcmConfig, redisConfig } from './integrations.config';
 import { emailConfig, smsConfig } from './messaging.config';
 
@@ -23,4 +24,5 @@ export const configLoaders = [
   alertsConfig,
   smsConfig,
   emailConfig,
+  verificationConfig,
 ];
