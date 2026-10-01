@@ -20,6 +20,7 @@ import type { ProfileInterestsResponse } from '../interests/dto/profile-interest
 import { PreferencesService } from '../preferences/preferences.service';
 import { SettingsService } from '../settings/settings.service';
 import { ProfileDetailResponse } from './dto/profile-detail.response';
+import { ProfileCreationHooks } from './profile-creation-hooks';
 
 type LocationAttrs = Pick<
   Profile,
@@ -62,6 +63,7 @@ export class ProfilesService {
     private readonly interests: InterestsService,
     private readonly preferences: PreferencesService,
     private readonly settings: SettingsService,
+    private readonly creationHooks: ProfileCreationHooks,
   ) {}
 
   /** profile.min_interests_for_completion (M08 settings). */
@@ -138,6 +140,8 @@ export class ProfilesService {
     };
 
     const profile = await this.sequelize.transaction(async (transaction) => {
+      // First, before the profile row is locked: hooks lock what their own writers lock first (M11: the users row).
+      const owned = await this.creationHooks.beforeCreate(userId, transaction);
       const existing = await this.profileModel.findOne({
         where: { userId },
         paranoid: false,
@@ -155,13 +159,13 @@ export class ProfilesService {
           throw new AppException(ErrorCode.ProfileDobLocked);
         }
         await existing.restore({ transaction });
-        existing.set(attrs);
+        existing.set({ ...attrs, faceVerifiedAt: owned.faceVerifiedAt ?? null });
         // Interests were removed on deletion, so the count is zero.
         existing.set('profileCompletion', this.completion.calculate({ ...existing.get(), interestCount: 0 }, await this.minInterests()).profileCompletion);
         return existing.save({ transaction });
       }
 
-      const draft = this.profileModel.build({ userId, ...attrs });
+      const draft = this.profileModel.build({ userId, ...attrs, faceVerifiedAt: owned.faceVerifiedAt ?? null });
       draft.set('profileCompletion', this.completion.calculate({ ...draft.get(), interestCount: 0 }, await this.minInterests()).profileCompletion);
       try {
         return await draft.save({ transaction });
@@ -196,6 +200,16 @@ export class ProfilesService {
     profile.set('profileCompletion', completion.profileCompletion);
     await profile.save();
     return ProfileResponse.fromModel(profile, completion);
+  }
+
+  /**
+   * Sets or clears face_verified_at (M11) on the user's live profile, inside
+   * the caller's transaction. Returns false when there is no profile yet: the
+   * creation hook fills it when the profile is created.
+   */
+  async setFaceVerifiedAt(userId: string, at: Date | null, transaction: Transaction): Promise<boolean> {
+    const [updated] = await this.profileModel.update({ faceVerifiedAt: at }, { where: { userId }, transaction });
+    return updated > 0;
   }
 
   /** Deactivates the profile: hidden, not discoverable, personal content scrubbed, soft-deleted. DOB is retained. */
@@ -235,7 +249,7 @@ export class ProfilesService {
       occupation: null,
       education: null,
       ...locationAttrs(null, new Date()),
-      ...(opts.scrubIdentity ? { displayName: null, dateOfBirth: null, gender: null } : {}),
+      ...(opts.scrubIdentity ? { displayName: null, dateOfBirth: null, gender: null, faceVerifiedAt: null } : {}),
     });
     profile.set('profileCompletion', this.completion.calculate({ ...profile.get(), interestCount: 0 }, await this.minInterests()).profileCompletion);
     await profile.save({ transaction });

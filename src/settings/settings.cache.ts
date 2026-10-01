@@ -4,6 +4,8 @@ import { redisKey } from '../infra/redis/redis-keys';
 export const SETTINGS_CACHE_TTL_SECONDS = 600;
 
 export const SETTINGS_CACHE_KEY = redisKey('settings', 'all');
+/** Bumped by every invalidate(); a read that started before it never re-caches old values. */
+export const SETTINGS_GENERATION_KEY = redisKey('settings', 'generation');
 export const APP_CONFIG_CACHE_KEY = redisKey('app-config', 'v1');
 export const CATALOG_INTERESTS_CACHE_KEY = redisKey('catalog', 'interests');
 export const CATALOG_PROMPTS_CACHE_KEY = redisKey('catalog', 'prompts');

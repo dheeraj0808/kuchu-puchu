@@ -40,6 +40,7 @@ export enum ErrorCode {
   InteractionAlreadyLiked = 'INTERACTION_ALREADY_LIKED',
   ContactExchangePending = 'CONTACT_EXCHANGE_PENDING',
   PreferencesAlreadyExist = 'PREFERENCES_ALREADY_EXIST', // not in Appendix C
+  VerificationStateConflict = 'VERIFICATION_STATE_CONFLICT', // not in Appendix C
 
   // 422
   ProfileDobLocked = 'PROFILE_DOB_LOCKED',
@@ -137,6 +138,10 @@ export const ERROR_DEFINITIONS: Record<ErrorCode, ErrorDefinition> = {
   [ErrorCode.PreferencesAlreadyExist]: {
     httpStatus: HttpStatus.CONFLICT,
     defaultMessage: 'Preferences already exist; use PATCH to update',
+  },
+  [ErrorCode.VerificationStateConflict]: {
+    httpStatus: HttpStatus.CONFLICT,
+    defaultMessage: 'Your selfie is already approved or waiting for review',
   },
 
   [ErrorCode.ProfileDobLocked]: {

@@ -1,4 +1,5 @@
-import { Controller, Get, UseGuards } from '@nestjs/common';
+import { Controller, Get, Header, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags, ApiUnauthorizedResponse } from '@nestjs/swagger';
 
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -34,6 +35,9 @@ export class AppConfigController {
   constructor(private readonly catalog: CatalogService) {}
 
   @Get('config')
+  // Public: its own per-IP limit on top of the global one; clients may cache it for a minute.
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
+  @Header('Cache-Control', 'public, max-age=60')
   @ApiOperation({
     summary: 'Public app config (no sign-in)',
     description:

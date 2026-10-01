@@ -6,6 +6,7 @@ import { PreferencesModule } from '../preferences/preferences.module';
 import { PROFILE_ACCOUNT_HOOKS } from './account-hooks';
 import { Profile } from './models/profile.model';
 import { ProfileCompletionService } from './profile-completion.service';
+import { ProfileCreationHooks } from './profile-creation-hooks';
 import { ProfileInterestsController } from './profile-interests.controller';
 import { ProfilesController } from './profiles.controller';
 import { ProfilesService } from './profiles.service';
@@ -15,7 +16,7 @@ import { ProfilesService } from './profiles.service';
   imports: [SequelizeModule.forFeature([Profile]), InterestsModule, PreferencesModule],
   // ProfileInterestsController first so /profile/interests is matched before any /profile/:param route.
   controllers: [ProfileInterestsController, ProfilesController],
-  providers: [ProfilesService, ProfileCompletionService, ...PROFILE_ACCOUNT_HOOKS],
-  exports: [ProfilesService],
+  providers: [ProfilesService, ProfileCompletionService, ProfileCreationHooks, ...PROFILE_ACCOUNT_HOOKS],
+  exports: [ProfilesService, ProfileCreationHooks],
 })
 export class ProfilesModule {}

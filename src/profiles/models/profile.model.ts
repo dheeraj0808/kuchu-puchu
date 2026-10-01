@@ -112,6 +112,10 @@ export class Profile extends Model {
   @Column({ type: DataType.TINYINT.UNSIGNED, allowNull: false })
   profileCompletion: number;
 
+  /** Live selfie approved (M11). NULL until then, and again when moderation asks for a new selfie. */
+  @Column(DataType.DATE(3))
+  faceVerifiedAt: Date | null;
+
   @CreatedAt
   @Column(DataType.DATE(3))
   override createdAt: Date;

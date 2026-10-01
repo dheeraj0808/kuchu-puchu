@@ -15,6 +15,8 @@ import { RelationshipIntent } from '../../src/preferences/models/dating-preferen
 import { APP_CONFIG_CACHE_KEY, SETTINGS_CACHE_KEY } from '../../src/settings/settings.cache';
 import { defaultSettings, SETTING_KEYS } from '../../src/settings/settings.registry';
 import { SettingsService } from '../../src/settings/settings.service';
+import { UsersService } from '../../src/users/users.service';
+import { IdentifierType } from '../../src/auth/models/otp-verification.model';
 import { ctx, freshIp, login, uniqueEmail } from '../support/auth-helpers';
 import { createTestApp } from '../support/test-app';
 
@@ -24,6 +26,7 @@ describe('M08 Catalogue & App Config (MySQL 8.4 + Redis)', () => {
   let redis: Redis;
   let server: ReturnType<NestExpressApplication['getHttpServer']>;
   let settings: SettingsService;
+  let adminId: string;
 
   beforeAll(async () => {
     app = await createTestApp();
@@ -32,6 +35,10 @@ describe('M08 Catalogue & App Config (MySQL 8.4 + Redis)', () => {
     redis = app.get<Redis>(REDIS_CLIENT);
     server = app.getHttpServer();
     settings = app.get(SettingsService);
+    // set() re-reads the actor's role: only an active admin may change settings.
+    const { user } = await app.get(UsersService).createVerified(IdentifierType.Email, uniqueEmail('admin'));
+    await sequelize.query(`UPDATE users SET role = 'admin' WHERE id = :id`, { replacements: { id: user.id } });
+    adminId = user.id;
   });
 
   afterEach(async () => {
@@ -198,14 +205,29 @@ describe('M08 Catalogue & App Config (MySQL 8.4 + Redis)', () => {
       await sequelize.query(`UPDATE app_settings SET value = CAST('true' AS JSON) WHERE \`key\` = 'app.maintenance'`);
       expect((await get('/app/config').expect(200)).body.data.maintenance).toBe(false);
       // …set() writes, audits and drops the caches.
-      await settings.set('app.min_version.android', '1.4.0', null);
+      await settings.set('app.min_version.android', '1.4.0', adminId);
       const after = (await get('/app/config').expect(200)).body.data;
       expect(after).toMatchObject({ maintenance: true, minVersion: { android: '1.4.0', ios: '1.0.0' } });
       expect(await redis.ttl(APP_CONFIG_CACHE_KEY)).toBeGreaterThan(590);
       const [event] = await select<{ metadata: Record<string, unknown> }>(
         `SELECT metadata FROM security_events WHERE event_type = 'admin.setting_changed' ORDER BY id DESC LIMIT 1`,
       );
-      expect(event.metadata).toEqual({ key: 'app.min_version.android', from: '1.0.0', to: '1.4.0' });
+      expect(event.metadata).toEqual({ key: 'app.min_version.android', from: '1.0.0', to: '1.4.0', changedFields: ['value'] });
+    });
+
+    it('only an active admin can change a setting (role read from the database) → else 403 FORBIDDEN', async () => {
+      const s = await login(app, uniqueEmail('notadmin'));
+      await expect(settings.set('app.maintenance', true, s.userId)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+      expect(await settings.get('app.maintenance')).toBe(false);
+    });
+
+    it('GET /app/config: its own per-IP limit (60/min) and a one-minute client cache header', async () => {
+      const ip = freshIp();
+      const first = await request(server).get('/api/v1/app/config').set('X-Forwarded-For', ip).expect(200);
+      expect(first.headers['cache-control']).toBe('public, max-age=60');
+      for (let i = 1; i < 60; i++) await request(server).get('/api/v1/app/config').set('X-Forwarded-For', ip).expect(200);
+      const limited = await request(server).get('/api/v1/app/config').set('X-Forwarded-For', ip).expect(429);
+      expect(limited.body.code).toBe('TOO_MANY_REQUESTS');
     });
 
     it('an invalid value is rejected (400 VALIDATION_ERROR) and nothing changes', async () => {
@@ -215,7 +237,7 @@ describe('M08 Catalogue & App Config (MySQL 8.4 + Redis)', () => {
         ['app.min_version.ios', 'latest'],
         ['preferences.min_distance_km', 500],
       ] as const) {
-        await expect(settings.set(key, value, null)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+        await expect(settings.set(key, value, adminId)).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
       }
       expect(await settings.get('preferences.max_distance_km')).toBe(200);
       expect(await settings.get('app.maintenance')).toBe(false);
@@ -270,7 +292,7 @@ describe('M08 Catalogue & App Config (MySQL 8.4 + Redis)', () => {
           .set('Authorization', `Bearer ${s.accessToken}`)
           .send({ interestIds: ids });
       expect((await put().expect(200)).body.data.maxInterests).toBe(10);
-      await settings.set('profile.max_interests', 2, null);
+      await settings.set('profile.max_interests', 2, adminId);
       expect((await put().expect(400)).body.code).toBe('VALIDATION_ERROR');
       expect(await redis.get(SETTINGS_CACHE_KEY)).not.toBeNull();
     });

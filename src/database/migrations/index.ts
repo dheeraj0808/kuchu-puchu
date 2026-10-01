@@ -23,6 +23,9 @@ import * as createBanHashes from './20261008000003-create-ban-hashes';
 import * as alignInterests from './20261009000001-align-interests';
 import * as createPrompts from './20261009000002-create-prompts';
 import * as createAppSettings from './20261009000003-create-app-settings';
+import * as interestsDropPlaceholderDefaults from './20261009000004-interests-drop-placeholder-defaults';
+import * as profilesFaceVerifiedAt from './20261010000001-profiles-face-verified-at';
+import * as createFaceVerifications from './20261010000002-create-face-verifications';
 
 export interface MigrationDefinition {
   name: string;
@@ -54,4 +57,7 @@ export const migrations: MigrationDefinition[] = [
   { name: '20261009000001-align-interests', ...alignInterests },
   { name: '20261009000002-create-prompts', ...createPrompts },
   { name: '20261009000003-create-app-settings', ...createAppSettings },
+  { name: '20261009000004-interests-drop-placeholder-defaults', ...interestsDropPlaceholderDefaults },
+  { name: '20261010000001-profiles-face-verified-at', ...profilesFaceVerifiedAt },
+  { name: '20261010000002-create-face-verifications', ...createFaceVerifications },
 ];

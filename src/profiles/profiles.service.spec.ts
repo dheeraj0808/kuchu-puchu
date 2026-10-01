@@ -12,6 +12,7 @@ import type { CreateProfileDto } from './dto/create-profile.dto';
 import { Gender, type Profile, ProfileVisibility } from './models/profile.model';
 import { ProfileCompletionService } from './profile-completion.service';
 import { fakeSettings } from '../settings/testing/fake-settings';
+import { ProfileCreationHooks } from './profile-creation-hooks';
 import { ProfilesService } from './profiles.service';
 import { type FakeProfile, fakeProfile } from './testing/fakes';
 
@@ -56,6 +57,7 @@ function setup() {
     interestsService as unknown as InterestsService,
     preferencesService as unknown as PreferencesService,
     fakeSettings(),
+    new ProfileCreationHooks(),
   );
   return { service, model, events, sequelize, tx, interestsService, preferencesService };
 }

@@ -55,6 +55,8 @@ export interface EventPayloads {
   'data_export.requested': { requestId: Id; userId: Id };
   /** Not in Appendix A: delete export files after a commit (account deletion). */
   'data_export.purge': { userId: Id; requestIds: Id[] };
+  /** Not in Appendix A: delete selfie objects after a commit (account deletion). */
+  'verification.face.purge': { userId: Id; verificationIds: Id[] };
 }
 
 export type EventType = keyof EventPayloads;
@@ -90,6 +92,7 @@ const KNOWN: Record<EventType, true> = {
   'account.deleted': true,
   'data_export.requested': true,
   'data_export.purge': true,
+  'verification.face.purge': true,
 };
 
 export const EVENT_TYPES = Object.freeze(Object.keys(KNOWN) as EventType[]);

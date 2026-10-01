@@ -48,6 +48,16 @@ export enum SecurityEventType {
   DataExportUrlIssued = 'account.data_export_url_issued',
   DataExportFailed = 'account.data_export_failed',
   UserStatusChanged = 'user.status_changed',
+  /** M11: a liveness session was started (verificationId, consentVersion). */
+  FaceSessionCreated = 'verification.face_session_created',
+  /** M11: an attempt was decided (decision, score bucket, reason; never the score's image or the provider payload). */
+  FaceDecided = 'verification.face_decided',
+  /** M11: a session or completion was refused by the attempt quota. */
+  FaceAttemptsExceeded = 'verification.face_attempts_exceeded',
+  /** M11: the liveness provider failed or timed out (error class only). */
+  FaceProviderFailed = 'verification.face_provider_failed',
+  /** M11: moderation asked for a new live selfie (VerificationService.requireReverification). */
+  FaceReverificationRequired = 'verification.face_reverification_required',
   /** An app_settings value was changed (M08 SettingsService.set; M15 admin API). Kept 3 years (admin.*). */
   AdminSettingChanged = 'admin.setting_changed',
   /** A valid session was refused because the account is suspended, banned or deactivated. */

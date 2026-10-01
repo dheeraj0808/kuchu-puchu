@@ -96,6 +96,20 @@ const emailOrNull = (v: unknown): string | null => {
   return v;
 };
 
+const CONSENT_VERSION = /^[A-Za-z0-9._-]{1,20}$/;
+/** Non-empty list of distinct consent versions (VARCHAR(20) each). Not public. */
+const consentVersions = (fallback: string[]): SettingDefinition<string[]> => ({
+  default: fallback,
+  parse(value) {
+    if (!Array.isArray(value) || value.length === 0 || value.length > 20) throw new SettingValueError('must be a list of 1 to 20 versions');
+    for (const v of value) {
+      if (typeof v !== 'string' || !CONSENT_VERSION.test(v)) throw new SettingValueError('versions must match [A-Za-z0-9._-], 1–20 chars');
+    }
+    if (new Set(value).size !== value.length) throw new SettingValueError('versions must be distinct');
+    return [...(value as string[])];
+  },
+});
+
 export type PublicFeatureFlags = {
   voiceVideoCalls: boolean;
   contactExchange: boolean;
@@ -117,6 +131,14 @@ export const SETTINGS = {
   'preferences.max_distance_km': int(1, 20_000, 200),
   /** Shown before a user saves preferences. */
   'preferences.default_distance_km': int(1, 20_000, 50),
+  /** M11: decided selfie attempts allowed in any rolling 24 h. */
+  'verification.face.attempts_per_day': int(1, 20, 3),
+  /** M11: decided selfie attempts allowed over the account's life; then only support can help. */
+  'verification.face.attempts_total': int(1, 100, 10),
+  /** M11: the selfie of a rejected attempt is deleted this many days after the decision. */
+  'verification.face.rejected_retention_days': int(1, 365, 30),
+  /** M11: consent-screen versions the app may send with POST /verification/face/session. */
+  'verification.face.consent_versions': consentVersions(['v1']),
   'app.min_version.android': version('1.0.0'),
   'app.min_version.ios': version('1.0.0'),
   'app.maintenance': bool(false),
@@ -159,5 +181,8 @@ export function checkInvariants(values: SettingValues): void {
   if (min > max) throw new SettingValueError('preferences.min_distance_km must not exceed preferences.max_distance_km');
   if (fallback < min || fallback > max) {
     throw new SettingValueError('preferences.default_distance_km must be between the min and max distance');
+  }
+  if (values['verification.face.attempts_per_day'] > values['verification.face.attempts_total']) {
+    throw new SettingValueError('verification.face.attempts_per_day must not exceed verification.face.attempts_total');
   }
 }

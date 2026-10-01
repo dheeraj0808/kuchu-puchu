@@ -11,9 +11,6 @@ export type CompletionInput = Pick<
   interestCount: number;
 };
 
-/** Default of the profile.min_interests_for_completion setting (M08). */
-export const MIN_INTERESTS_FOR_COMPLETION = 3;
-
 type Rule = { field: ProfileField; weight: number; isPresent: (p: CompletionInput, minInterests: number) => boolean };
 
 /**
@@ -38,7 +35,7 @@ export const COMPLETION_RULES: ReadonlyArray<Rule> = [
 @Injectable()
 export class ProfileCompletionService {
   /** `minInterests`: the profile.min_interests_for_completion setting (callers read it from SettingsService). */
-  calculate(profile: CompletionInput | null, minInterests: number = MIN_INTERESTS_FOR_COMPLETION): ProfileCompletionResponse {
+  calculate(profile: CompletionInput | null, minInterests: number): ProfileCompletionResponse {
     let score = 0;
     const missingFields: ProfileField[] = [];
     for (const rule of COMPLETION_RULES) {
