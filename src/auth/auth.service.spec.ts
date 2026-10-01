@@ -27,12 +27,13 @@ const device = { deviceId: 'dev-1', deviceName: 'Pixel', platform: 'android' as 
 function setup() {
   const otp = {
     hashIdentifier: jest.fn((t: string, v: string) => `H(${t}:${v})`),
-    issue: jest.fn().mockResolvedValue({ otp: '123456', record: { id: 'r1' }, releaseCooldown: jest.fn() }),
+    rateLimitHash: jest.fn((t: string, v: string) => `R(${t}:${v})`),
+    issue: jest.fn().mockResolvedValue({ otp: '123456', record: { id: 'r1' }, release: jest.fn() }),
     verify: jest.fn(),
     ttlSeconds: 300,
     resendCooldownSeconds: 60,
   };
-  const delivery = { send: jest.fn().mockResolvedValue('sent') };
+  const delivery = { send: jest.fn().mockResolvedValue({ status: 'sent', pool: 'new' }) };
   const sessions = {
     create: jest.fn(),
     rotate: jest.fn(),
@@ -75,26 +76,38 @@ const eventTypes = (events: { record: jest.Mock }): string[] =>
 
 describe('AuthService', () => {
   describe('requestOtp', () => {
-    it('never looks the account up: one code is issued and delivered for any identifier, same body', async () => {
+    it('one code is issued and delivered for any identifier, same body; the lookup only picks the SMS pool', async () => {
       const s = setup();
-      const res = await s.service.requestOtp({ channel: OtpChannel.Sms, identifier: PHONE }, ctx);
+      const res = await s.service.requestOtp({ channel: OtpChannel.Sms, identifier: PHONE }, { ...ctx, deviceId: 'dev-9' });
       expect(res).toEqual({ message: OTP_REQUEST_MESSAGE, expiresInSeconds: 300, resendAfterSeconds: 60 });
-      expect(s.users.findByIdentifier).not.toHaveBeenCalled();
-      expect(s.otp.issue).toHaveBeenCalledWith(
-        expect.objectContaining({ identifierHash: `H(phone:${PHONE})`, channel: 'sms', purpose: 'login', requestIp: '192.0.2.1' }),
-      );
-      expect(s.delivery.send).toHaveBeenCalledWith({ type: 'phone', identifier: PHONE, otp: '123456', purpose: 'login' });
+      expect(s.otp.issue).toHaveBeenCalledWith({
+        identifierHash: `H(phone:${PHONE})`,
+        rateLimitHash: `R(phone:${PHONE})`,
+        channel: 'sms',
+        purpose: 'login',
+        requestIp: '192.0.2.1',
+        deviceId: 'dev-9',
+      });
+      expect(s.delivery.send).toHaveBeenCalledWith({ type: 'phone', identifier: PHONE, otp: '123456', purpose: 'login', existingAccount: false });
       expect(eventTypes(s.events)).toEqual([SecurityEventType.OtpRequested]);
+
+      s.users.findByIdentifier.mockResolvedValue(fakeUser({ phone: PHONE }));
+      await expect(s.service.requestOtp({ channel: OtpChannel.Sms, identifier: PHONE }, ctx)).resolves.toEqual(res);
+      expect(s.delivery.send).toHaveBeenLastCalledWith(expect.objectContaining({ existingAccount: true }));
     });
 
     it.each([
-      ['country_blocked', SecurityEventType.OtpSmsCountryBlocked],
-      ['budget_blocked', SecurityEventType.OtpSmsBudgetBlocked],
-    ])('fraud guard %s → the same 200 and a security event', async (outcome, eventType) => {
+      [OtpChannel.Sms, { status: 'country_blocked' }, SecurityEventType.OtpSmsCountryBlocked],
+      [OtpChannel.Sms, { status: 'budget_blocked', pool: 'new' }, SecurityEventType.OtpSmsBudgetBlocked],
+      [OtpChannel.Email, { status: 'budget_blocked' }, SecurityEventType.OtpEmailBudgetBlocked],
+    ])('%s fraud guard %j → the same 200 and a security event', async (channel, outcome, eventType) => {
       const s = setup();
       s.delivery.send.mockResolvedValue(outcome);
-      await expect(s.service.requestOtp({ channel: OtpChannel.Sms, identifier: PHONE }, ctx)).resolves.toMatchObject({
+      const identifier = channel === OtpChannel.Sms ? PHONE : EMAIL;
+      await expect(s.service.requestOtp({ channel, identifier }, ctx)).resolves.toEqual({
         message: OTP_REQUEST_MESSAGE,
+        expiresInSeconds: 300,
+        resendAfterSeconds: 60,
       });
       expect(eventTypes(s.events)).toEqual([eventType]);
     });
@@ -105,14 +118,14 @@ describe('AuthService', () => {
       expect(JSON.stringify(s.events.record.mock.calls)).not.toContain(EMAIL);
     });
 
-    it('delivery failure → 503 OTP_DELIVERY_FAILED and the cooldown is released', async () => {
+    it('delivery failure → 503 OTP_DELIVERY_FAILED and the cooldown and cap slots are released', async () => {
       const s = setup();
-      const releaseCooldown = jest.fn();
-      s.otp.issue.mockResolvedValue({ otp: '1', record: {}, releaseCooldown });
+      const release = jest.fn();
+      s.otp.issue.mockResolvedValue({ otp: '1', record: {}, release });
       s.delivery.send.mockRejectedValue(new Error('provider down'));
       const err = (await s.service.requestOtp({ channel: OtpChannel.Email, identifier: EMAIL }, ctx).catch((e: unknown) => e)) as AppException;
       expect(err.code).toBe(ErrorCode.OtpDeliveryFailed);
-      expect(releaseCooldown).toHaveBeenCalled();
+      expect(release).toHaveBeenCalled();
     });
 
     it('429 from issuance is audited and passed through', async () => {
@@ -144,7 +157,7 @@ describe('AuthService', () => {
       const session = fakeSession({ userId: user.id });
       s.otp.verify.mockResolvedValue({ ok: true, record: { id: 'r1', channel: 'email' } });
       s.users.createVerified.mockResolvedValue({ user, created: true });
-      s.sessions.create.mockResolvedValue({ session, refreshToken: 'rt', newDevice: true, replacedSessionIds: [] });
+      s.sessions.create.mockResolvedValue({ session, refreshToken: 'rt', newDevice: true, replacedSessionIds: [], evictedSessionIds: [] });
 
       const res = await s.service.verifyOtp(dto, ctx);
 
@@ -169,7 +182,7 @@ describe('AuthService', () => {
       s.otp.verify.mockResolvedValue({ ok: true, record: { id: 'r1' } });
       s.users.findByIdentifier.mockResolvedValue(user);
       s.users.findByIdForUpdate.mockResolvedValue(user);
-      s.sessions.create.mockResolvedValue({ session, refreshToken: 'rt', newDevice: true, replacedSessionIds: ['old'] });
+      s.sessions.create.mockResolvedValue({ session, refreshToken: 'rt', newDevice: true, replacedSessionIds: ['old'], evictedSessionIds: [] });
 
       const res = await s.service.verifyOtp(dto, ctx);
 
@@ -240,6 +253,8 @@ describe('AuthService', () => {
       s.users.findById.mockResolvedValue(both);
       await expect(s.service.reauthRequest(principal(both), {}, ctx)).resolves.toMatchObject({ channel: 'sms' });
       expect(s.otp.issue).toHaveBeenLastCalledWith(expect.objectContaining({ purpose: 'reauth', identifierHash: `H(phone:${PHONE})` }));
+      // Step-up is always for an account: its SMS comes from the reserve.
+      expect(s.delivery.send).toHaveBeenLastCalledWith(expect.objectContaining({ purpose: 'reauth', existingAccount: true }));
 
       const emailOnly = fakeUser({ phone: null, phoneVerifiedAt: null });
       s.users.findById.mockResolvedValue(emailOnly);

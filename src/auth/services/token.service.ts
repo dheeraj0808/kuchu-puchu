@@ -47,6 +47,11 @@ export class TokenService {
     return this.cfg.sessionMaxDays * DAY_MS;
   }
 
+  /** SESSION_MAX_PER_USER: live sessions one user may hold. */
+  get maxSessionsPerUser(): number {
+    return this.cfg.sessionMaxPerUser;
+  }
+
   /** HS256 with claims {sub, sid, iss, aud} (guide M06). The role is never in the token. */
   async signAccessToken(payload: Pick<JwtPayload, 'sub' | 'sid'>): Promise<SignedAccessToken> {
     const cfg = this.cfg;

@@ -5,6 +5,7 @@ import type { Sequelize } from 'sequelize-typescript';
 
 import { AppException, ErrorCode } from '../../common/exceptions/app.exception';
 import { timingSafeEqualHex } from '../../common/utils/hmac';
+import { ipBucket } from '../../common/utils/ip-bucket';
 import type { ClientPlatform, RequestContext } from '../../common/utils/request-context';
 import { OutboxService } from '../../events/outbox.service';
 import { SecurityEventType } from '../../security/models/security-event.model';
@@ -18,6 +19,9 @@ export { SessionRevokeReason } from '../models/session.model';
 
 /** Guide M06: a step-up counts for 10 minutes. */
 export const REAUTH_WINDOW_MS = 10 * 60_000;
+/** Invalid-refresh security events: at most one per IP per this many seconds. */
+export const INVALID_REFRESH_AUDIT_SECONDS = 300;
+
 /** GET /auth/sessions returns at most this many devices, most recently used first. */
 export const SESSION_LIST_LIMIT = 50;
 
@@ -33,8 +37,10 @@ export interface CreatedSession {
   refreshToken: string;
   /** No session of this user ever had this deviceId (as far as retained rows go). */
   newDevice: boolean;
-  /** Live sessions on the same device that this login replaced. */
+  /** Live sessions this login replaced: the same device's, and the least recently used beyond the per-user cap. */
   replacedSessionIds: string[];
+  /** The subset of replacedSessionIds revoked because of SESSION_MAX_PER_USER (not the same device). */
+  evictedSessionIds: string[];
 }
 
 export interface RotatedSession {
@@ -66,7 +72,9 @@ export class SessionService {
   /**
    * Opens a session inside the caller's login transaction (the caller holds
    * the user row lock, so two logins of one user never interleave). A live
-   * session with the same deviceId is revoked as `replaced`.
+   * session with the same deviceId is revoked as `replaced`; so are the least
+   * recently used live sessions that would take the user past
+   * SESSION_MAX_PER_USER.
    */
   async create(userId: string, device: DeviceInfo, ctx: RequestContext, transaction: Transaction): Promise<CreatedSession> {
     const now = new Date();
@@ -76,6 +84,25 @@ export class SessionService {
       transaction,
     });
     const replacedSessionIds = sameDevice.filter((s) => !s.revokedAt).map((s) => s.id);
+    const others = await this.sessionModel.findAll({
+      attributes: ['id'],
+      where: {
+        userId,
+        revokedAt: null,
+        expiresAt: { [Op.gt]: now },
+        absoluteExpiresAt: { [Op.gt]: now },
+        ...(replacedSessionIds.length > 0 ? { id: { [Op.notIn]: replacedSessionIds } } : {}),
+      },
+      order: [
+        ['lastUsedAt', 'ASC'],
+        ['id', 'ASC'],
+      ],
+      transaction,
+    });
+    // Room for the new session: keep at most cap - 1 of the others, dropping the least recently used.
+    const excess = others.length - (this.tokens.maxSessionsPerUser - 1);
+    const evictedSessionIds = excess > 0 ? others.slice(0, excess).map((s) => s.id) : [];
+    replacedSessionIds.push(...evictedSessionIds);
     if (replacedSessionIds.length > 0) {
       await this.sessionModel.update(
         { revokedAt: now, revokedReason: SessionRevokeReason.Replaced },
@@ -111,6 +138,7 @@ export class SessionService {
       refreshToken: this.tokens.buildRefreshToken(session.id, secret),
       newDevice: sameDevice.length === 0,
       replacedSessionIds,
+      evictedSessionIds,
     };
   }
 
@@ -291,7 +319,16 @@ export class SessionService {
     });
   }
 
+  /**
+   * Tokens that name no real session (malformed, unknown session id) are
+   * audited at most once per IP (an IPv6 /64 counts as one) per
+   * INVALID_REFRESH_AUDIT_SECONDS, so spraying garbage cannot flood the log.
+   * A failure against a real session (it carries a userId) is always recorded.
+   */
   private async recordInvalid(userId: string | null, ctx: RequestContext, reason: string): Promise<void> {
+    if (userId === null && !(await this.sessionState.takeAuditSlot('refresh-invalid-audit', ipBucket(ctx.ipAddress), INVALID_REFRESH_AUDIT_SECONDS))) {
+      return;
+    }
     await this.securityEvents.record({
       eventType: SecurityEventType.RefreshTokenInvalid,
       userId,

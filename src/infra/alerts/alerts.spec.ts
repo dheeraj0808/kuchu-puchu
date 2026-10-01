@@ -23,9 +23,12 @@ describe('alert formatting', () => {
     );
   });
 
-  it('formats SMS budget alerts with counts only', () => {
-    expect(formatAlert({ kind: 'sms_budget_warning', used: 8000, budget: 10000, day: '2026-10-01' }, 'production')).toBe(
-      '[kuchu-puchu production] Daily SMS budget is 80% used: used=8000 budget=10000 day=2026-10-01',
+  it('formats budget alerts with the pool and counts only', () => {
+    expect(formatAlert({ kind: 'sms_budget_warning', used: 5600, budget: 7000, day: '2026-10-01', pool: 'new' }, 'production')).toBe(
+      '[kuchu-puchu production] Daily SMS budget pool is 80% used: pool=new used=5600 budget=7000 day=2026-10-01',
+    );
+    expect(formatAlert({ kind: 'email_budget_exhausted', used: 20000, budget: 20000, day: '2026-10-01' }, 'staging')).toBe(
+      '[kuchu-puchu staging] Daily OTP email budget used up; email codes are no longer sent today: used=20000 budget=20000 day=2026-10-01',
     );
   });
 

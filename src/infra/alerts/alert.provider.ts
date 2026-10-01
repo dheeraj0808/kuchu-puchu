@@ -1,6 +1,6 @@
 export type OutboxAlertKind = 'outbox_relay_failed' | 'outbox_handler_failed';
-export type SmsBudgetAlertKind = 'sms_budget_warning' | 'sms_budget_exhausted';
-export type AlertKind = OutboxAlertKind | SmsBudgetAlertKind;
+export type BudgetAlertKind = 'sms_budget_warning' | 'sms_budget_exhausted' | 'email_budget_warning' | 'email_budget_exhausted';
+export type AlertKind = OutboxAlertKind | BudgetAlertKind;
 
 /**
  * An outbox alert. It carries identifiers and the error class only:
@@ -21,16 +21,18 @@ export interface OutboxAlert {
   errorClass: string;
 }
 
-/** The daily SMS budget (guide M06) reached 80 % (warning) or 100 % (sending stopped). Counts only. */
-export interface SmsBudgetAlert {
-  kind: SmsBudgetAlertKind;
+/** A daily OTP budget (an SMS pool, or email) reached 80 % (warning) or 100 % (sending stopped). Counts only. */
+export interface BudgetAlert {
+  kind: BudgetAlertKind;
   used: number;
   budget: number;
   /** The IST calendar day the budget belongs to, YYYY-MM-DD. */
   day: string;
+  /** SMS only: `new` identifiers or the `existing`-account reserve. */
+  pool?: 'new' | 'existing';
 }
 
-export type Alert = OutboxAlert | SmsBudgetAlert;
+export type Alert = OutboxAlert | BudgetAlert;
 
 export function isOutboxAlert(alert: Alert): alert is OutboxAlert {
   return alert.kind === 'outbox_relay_failed' || alert.kind === 'outbox_handler_failed';
@@ -58,14 +60,21 @@ export function errorClassOf(err: unknown): string {
 const TITLES: Record<AlertKind, string> = {
   outbox_relay_failed: 'Outbox event could not be relayed',
   outbox_handler_failed: 'Outbox handler failed after all retries',
-  sms_budget_warning: 'Daily SMS budget is 80% used',
-  sms_budget_exhausted: 'Daily SMS budget used up; SMS codes are no longer sent today',
+  sms_budget_warning: 'Daily SMS budget pool is 80% used',
+  sms_budget_exhausted: 'Daily SMS budget pool used up; SMS codes from this pool are no longer sent today',
+  email_budget_warning: 'Daily OTP email budget is 80% used',
+  email_budget_exhausted: 'Daily OTP email budget used up; email codes are no longer sent today',
 };
 
 /** One-line alert text, e.g. for a Slack `{ "text": … }` body. */
 export function formatAlert(alert: Alert, environment: string): string {
   if (!isOutboxAlert(alert)) {
-    const parts = [`used=${Math.trunc(alert.used)}`, `budget=${Math.trunc(alert.budget)}`, `day=${safeAlertValue(alert.day)}`];
+    const parts = [
+      ...(alert.pool !== undefined ? [`pool=${safeAlertValue(alert.pool)}`] : []),
+      `used=${Math.trunc(alert.used)}`,
+      `budget=${Math.trunc(alert.budget)}`,
+      `day=${safeAlertValue(alert.day)}`,
+    ];
     return `[kuchu-puchu ${safeAlertValue(environment)}] ${TITLES[alert.kind]}: ${parts.join(' ')}`;
   }
   const parts = [

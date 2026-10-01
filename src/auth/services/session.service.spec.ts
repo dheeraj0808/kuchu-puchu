@@ -28,7 +28,18 @@ function setup() {
   const tx = { id: 'tx' };
   const sequelize = { transaction: jest.fn((fn: (t: object) => Promise<unknown>) => fn(tx)) };
   const events = fakeSecurityEvents();
-  const sessionState = { invalidate: jest.fn().mockResolvedValue(undefined), invalidateUser: jest.fn().mockResolvedValue(undefined) };
+  const auditSlots = new Set<string>();
+  const sessionState = {
+    invalidate: jest.fn().mockResolvedValue(undefined),
+    invalidateUser: jest.fn().mockResolvedValue(undefined),
+    // SET NX semantics: the first take per (area, id) wins.
+    takeAuditSlot: jest.fn(async (area: string, id: string) => {
+      const key = `${area}:${id}`;
+      if (auditSlots.has(key)) return false;
+      auditSlots.add(key);
+      return true;
+    }),
+  };
   const outbox = { publish: jest.fn().mockResolvedValue('1') };
   const service = new SessionService(
     model as unknown as typeof Session,
@@ -90,6 +101,38 @@ describe('SessionService', () => {
       expect(newDevice).toBe(false);
       expect(s.model.update.mock.calls[0][0]).toMatchObject({ revokedReason: SessionRevokeReason.Replaced });
       expect(s.sessionState.invalidate).toHaveBeenCalledWith(['old-live'], s.tx);
+    });
+
+    it('session cap: at SESSION_MAX_PER_USER live sessions, the least recently used is revoked as "replaced"', async () => {
+      const s = setup();
+      const live = Array.from({ length: 10 }, (_, i) => ({ id: `s${i}` }));
+      s.model.findAll.mockResolvedValueOnce([]).mockResolvedValueOnce(live);
+      const { replacedSessionIds, evictedSessionIds } = await s.service.create('u1', device, ctx, s.tx as never);
+      expect(replacedSessionIds).toEqual(['s0']);
+      expect(evictedSessionIds).toEqual(['s0']);
+      const capQuery = s.model.findAll.mock.calls[1][0] as { where: Record<string, unknown>; order: unknown };
+      expect(capQuery.where).toMatchObject({ userId: 'u1', revokedAt: null });
+      expect(capQuery.order).toEqual([
+        ['lastUsedAt', 'ASC'],
+        ['id', 'ASC'],
+      ]);
+      const [changes, opts] = s.model.update.mock.calls[0] as [Record<string, unknown>, { where: { id: unknown } }];
+      expect(changes).toMatchObject({ revokedReason: SessionRevokeReason.Replaced });
+      expect(opts.where.id).toEqual({ [Symbol.for('in')]: ['s0'] });
+      expect(s.sessionState.invalidate).toHaveBeenCalledWith(['s0'], s.tx);
+    });
+
+    it('session cap: below the cap nothing is revoked; a same-device replacement frees its own slot', async () => {
+      const s = setup();
+      s.model.findAll.mockResolvedValueOnce([]).mockResolvedValueOnce(Array.from({ length: 9 }, (_, i) => ({ id: `s${i}` })));
+      expect((await s.service.create('u1', device, ctx, s.tx as never)).replacedSessionIds).toEqual([]);
+      expect(s.model.update).not.toHaveBeenCalled();
+
+      // 9 others + the same-device session being replaced: still room, only the same-device one goes.
+      s.model.findAll
+        .mockResolvedValueOnce([{ id: 'same', revokedAt: null }])
+        .mockResolvedValueOnce(Array.from({ length: 9 }, (_, i) => ({ id: `s${i}` })));
+      expect(await s.service.create('u1', device, ctx, s.tx as never)).toMatchObject({ replacedSessionIds: ['same'], evictedSessionIds: [] });
     });
   });
 
@@ -164,6 +207,31 @@ describe('SessionService', () => {
       const s = setup();
       await expectAppError(s.service.rotate(token(), ctx), ErrorCode.Unauthorized, HttpStatus.UNAUTHORIZED);
       expect(s.outbox.publish).not.toHaveBeenCalled();
+    });
+
+    it('invalid refreshes are audited at most once per IP per 5 minutes; still 401 every time', async () => {
+      const s = setup();
+      for (let i = 0; i < 3; i++) await expectAppError(s.service.rotate('nope', ctx), ErrorCode.Unauthorized, HttpStatus.UNAUTHORIZED);
+      await expectAppError(s.service.rotate('nope', { ...ctx, ipAddress: '198.51.100.8' }), ErrorCode.Unauthorized, HttpStatus.UNAUTHORIZED);
+      expect(s.events.record.mock.calls.map((c) => (c[0] as { context: { ipAddress: string } }).context.ipAddress)).toEqual([
+        '198.51.100.7',
+        '198.51.100.8',
+      ]);
+      expect(s.sessionState.takeAuditSlot).toHaveBeenCalledWith('refresh-invalid-audit', '198.51.100.7', 300);
+    });
+
+    it('a failure against a real session (it has a userId) is always audited, never throttled', async () => {
+      const s = setup();
+      const { session } = stored(s);
+      for (let i = 0; i < 3; i++) {
+        await expectAppError(
+          s.service.rotate(s.tokens.buildRefreshToken(session.id, s.tokens.generateRefreshSecret()), ctx),
+          ErrorCode.Unauthorized,
+          HttpStatus.UNAUTHORIZED,
+        );
+      }
+      expect(s.events.record).toHaveBeenCalledTimes(3);
+      expect(s.sessionState.takeAuditSlot).not.toHaveBeenCalled();
     });
 
     it('revoked, sliding-expired or absolute-expired sessions → 401 without reuse handling', async () => {

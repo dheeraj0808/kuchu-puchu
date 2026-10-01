@@ -14,6 +14,8 @@ export const TEST_OTP_CONFIG: OtpConfig = {
   resendCooldownSeconds: 60,
   maxRequestsPerHour: 5,
   maxRequestsPerIpPerHour: 20,
+  maxRequestsPerDevicePerHour: 10,
+  reauthMaxRequestsPerHour: 5,
   smsAllowedCountries: ['+91'],
   devEcho: false,
 };
@@ -24,6 +26,7 @@ export const TEST_JWT_CONFIG: JwtConfig = {
   accessExpiresIn: '15m',
   sessionSlidingDays: 30,
   sessionMaxDays: 90,
+  sessionMaxPerUser: 10,
   issuer: 'kuchu-puchu',
   audience: 'kuchu-puchu-app',
 };

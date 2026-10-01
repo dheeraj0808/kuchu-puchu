@@ -147,6 +147,12 @@ export class EnvironmentVariables {
   @Max(365)
   SESSION_MAX_DAYS: number = 90;
 
+  /** Live sessions per user; a login beyond it revokes the least recently used one ("replaced"). */
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  SESSION_MAX_PER_USER: number = 10;
+
   @IsString()
   JWT_ISSUER: string = 'kuchu-puchu';
 
@@ -185,6 +191,16 @@ export class EnvironmentVariables {
   @Min(1)
   OTP_MAX_PER_IP_PER_HOUR: number = 20;
 
+  /** Per X-Device-Id; requests without the header share one bucket per IP. */
+  @IsInt()
+  @Min(1)
+  OTP_MAX_PER_DEVICE_PER_HOUR: number = 10;
+
+  /** Step-up codes per identifier per hour, counted apart from sign-in codes. */
+  @IsInt()
+  @Min(1)
+  OTP_REAUTH_MAX_PER_HOUR: number = 5;
+
   /** Comma-separated calling codes that may receive SMS codes, e.g. "+91,+971". */
   @Matches(/^\+[1-9]\d{0,3}(,\+[1-9]\d{0,3})*$/, {
     message: 'OTP_SMS_ALLOWED_COUNTRIES must be comma-separated calling codes such as +91',
@@ -209,6 +225,21 @@ export class EnvironmentVariables {
   @IsInt()
   @Min(1)
   SMS_DAILY_BUDGET: number = 10_000;
+
+  /**
+   * Share (%) of SMS_DAILY_BUDGET for identifiers no account holds yet. The rest
+   * is reserved for existing accounts, so a flood of random numbers never
+   * blocks their sign-in or step-up.
+   */
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  SMS_BUDGET_NEW_IDENTIFIER_PERCENT: number = 70;
+
+  /** OTP emails per IST calendar day across all users; alert at 80 %, stop at 100 %. */
+  @IsInt()
+  @Min(1)
+  EMAIL_DAILY_BUDGET: number = 20_000;
 
   /** Sender for OTP emails. With SES_REGION it selects SES; both are required in production. */
   @IsOptional()

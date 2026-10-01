@@ -2,15 +2,18 @@ import { Inject, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/sequelize';
 import type { Redis } from 'ioredis';
-import { literal, Op, type WhereOptions } from 'sequelize';
+import { literal, Op } from 'sequelize';
 
 import { AppException, ErrorCode } from '../../common/exceptions/app.exception';
 import { hmacSha256, timingSafeEqualHex } from '../../common/utils/hmac';
+import { ipBucket } from '../../common/utils/ip-bucket';
 import type { OtpConfig } from '../../config/otp.config';
 import { REDIS_CLIENT } from '../../infra/redis/redis.module';
 import { redisKey } from '../../infra/redis/redis-keys';
-import { type IdentifierType, type OtpChannel, type OtpPurpose, OtpVerification } from '../models/otp-verification.model';
+import { takeWindowSlot, type WindowSlot } from '../../infra/redis/sliding-window';
+import { type IdentifierType, type OtpChannel, OtpPurpose, OtpVerification } from '../models/otp-verification.model';
 import { generateNumericOtp } from '../utils/crypto.util';
+import { canonicalIdentifier } from '../utils/identifier.util';
 
 const ONE_HOUR_MS = 60 * 60 * 1000;
 
@@ -21,18 +24,27 @@ export type OtpVerifyResult =
   | { ok: false; reason: OtpFailureReason };
 
 export interface IssueOtpInput {
+  /** hashIdentifier() of the exact identifier: stored, and what verify looks codes up by. */
   identifierHash: string;
+  /** rateLimitHash(): the canonical form, so aliases of one mailbox share the cooldown and caps. */
+  rateLimitHash: string;
   channel: OtpChannel;
   purpose: OtpPurpose;
   requestIp: string;
+  /** X-Device-Id, when the request sent a valid one. */
+  deviceId?: string;
 }
 
 export interface IssuedOtp {
   /** Plaintext code: in memory only, handed to the delivery adapter. */
   otp: string;
   record: OtpVerification;
-  /** Frees the cooldown again, e.g. when the code could not be delivered. */
-  releaseCooldown: () => Promise<void>;
+  /**
+   * The code could not be delivered: hands back the cooldown and the
+   * identifier and device slots. The IP slot stays used, so repeated
+   * delivery failures cannot be retried without limit.
+   */
+  release: () => Promise<void>;
 }
 
 export interface VerifyOtpInput {
@@ -44,15 +56,36 @@ export interface VerifyOtpInput {
   otp: string;
 }
 
-export function otpCooldownKey(identifierHash: string): string {
-  return redisKey('otp-cooldown', identifierHash);
+/** Sign-in and step-up have separate keys, so code spam for one never blocks the other. */
+export function otpCooldownKey(purpose: OtpPurpose, rateLimitHash: string): string {
+  return redisKey('otp-cooldown', purpose, rateLimitHash);
+}
+
+export function otpHourlyKey(purpose: OtpPurpose, rateLimitHash: string): string {
+  return redisKey('otp-hourly', purpose, rateLimitHash);
+}
+
+/** Per ipBucket(): an IPv6 /64 counts as one address. */
+export function otpIpKey(purpose: OtpPurpose, requestIp: string): string {
+  return redisKey('otp-ip', purpose, ipBucket(requestIp));
+}
+
+/**
+ * Requests without an X-Device-Id share one bucket per IP (ipBucket). The
+ * header is client-chosen, so this cap only slows honest-looking clients; the
+ * per-IP cap is the real bound.
+ */
+export function otpDeviceKey(purpose: OtpPurpose, deviceId: string | undefined, requestIp: string): string {
+  return deviceId ? redisKey('otp-device', purpose, deviceId) : redisKey('otp-no-device', purpose, ipBucket(requestIp));
 }
 
 /**
  * Codes (guide M06): 6 digits from a CSPRNG, stored as an HMAC, valid
- * OTP_TTL_SECONDS, OTP_MAX_ATTEMPTS tries, one active code per identifier,
- * consumed once. Issuance is gated by an atomic per-identifier cooldown in
- * Redis, then by hourly caps per identifier and per IP counted in MySQL.
+ * OTP_TTL_SECONDS, OTP_MAX_ATTEMPTS tries, one active code per identifier and
+ * purpose, consumed once. Issuance is gated, per purpose, by an atomic cooldown
+ * and an hourly cap on the canonical identifier, an hourly cap per IP (an IPv6
+ * /64 counts as one) and an hourly cap per device, all in Redis. Sign-in and step-up never share
+ * a limit, so sign-in code spam cannot block a signed-in user's step-up.
  */
 @Injectable()
 export class OtpService {
@@ -71,6 +104,11 @@ export class OtpService {
     return hmacSha256(this.cfg.hashSecret, `${type}:${normalizedIdentifier}`);
   }
 
+  /** The same HMAC over the canonical form (canonicalIdentifier); equals hashIdentifier() when there is no alias. */
+  rateLimitHash(type: IdentifierType, normalizedIdentifier: string): string {
+    return this.hashIdentifier(type, canonicalIdentifier(type, normalizedIdentifier));
+  }
+
   hashOtp(identifierHash: string, otp: string): string {
     return hmacSha256(this.cfg.hashSecret, `otp:${identifierHash}:${otp}`);
   }
@@ -85,14 +123,17 @@ export class OtpService {
 
   /**
    * Issues a code. Throws 429 OTP_COOLDOWN or TOO_MANY_REQUESTS with
-   * details.retryAfterSeconds. The cooldown is one SET NX per identifier, so
-   * parallel requests for the same identifier cannot both pass it; that is
-   * also what keeps "one active code per identifier" true under races.
+   * details.retryAfterSeconds. The cooldown is one SET NX per canonical
+   * identifier and purpose, so parallel requests cannot both pass it; that is
+   * also what keeps "one active code per identifier" true under races. A cap
+   * that refuses hands back the cooldown and every slot already taken: no code
+   * was issued, so there is nothing to wait for. The otp_verifications
+   * (request_ip, created_at) index stays for investigations.
    */
   async issue(input: IssueOtpInput): Promise<IssuedOtp> {
     const cfg = this.cfg;
-    const { identifierHash } = input;
-    const cooldownKey = otpCooldownKey(identifierHash);
+    const { identifierHash, purpose, requestIp } = input;
+    const cooldownKey = otpCooldownKey(purpose, input.rateLimitHash);
     const releaseCooldown = async (): Promise<void> => {
       await this.redis.del(cooldownKey).catch(() => undefined);
     };
@@ -106,38 +147,55 @@ export class OtpService {
       }
     }
 
-    const now = new Date();
-    const hourAgo = new Date(now.getTime() - ONE_HOUR_MS);
-    const identifierWhere = { identifierHash, createdAt: { [Op.gt]: hourAgo } };
-    // A cap 429 hands the cooldown back: no code was issued, so there is nothing to wait for.
-    if ((await this.otpModel.count({ where: identifierWhere })) >= cfg.maxRequestsPerHour) {
+    const taken: Array<() => Promise<void>> = [];
+    const releaseAll = async (): Promise<void> => {
+      await Promise.all(taken.map((r) => r()));
       await releaseCooldown();
-      throw await this.tooManyRequests(identifierWhere, now);
-    }
-    const ipWhere = { requestIp: input.requestIp, createdAt: { [Op.gt]: hourAgo } };
-    if ((await this.otpModel.count({ where: ipWhere })) >= cfg.maxRequestsPerIpPerHour) {
-      await releaseCooldown();
-      throw await this.tooManyRequests(ipWhere, now);
-    }
+    };
+    let ipSlotRelease: (() => Promise<void>) | null = null;
+    // Every cap is an atomic sliding window in Redis, so parallel requests can never overshoot it.
+    const take = async (key: string, limit: number): Promise<() => Promise<void>> => {
+      const slot: WindowSlot = await takeWindowSlot(this.redis, key, limit, ONE_HOUR_MS);
+      if (!slot.taken) throw new AppException(ErrorCode.TooManyRequests, { retryAfterSeconds: slot.retryAfterSeconds });
+      taken.push(slot.release);
+      return slot.release;
+    };
 
-    // One active code per identifier: a new code (either purpose) expires the older ones.
-    await this.otpModel.update(
-      { expiresAt: now },
-      { where: { identifierHash, consumedAt: null, expiresAt: { [Op.gt]: now } } },
-    );
+    try {
+      const perIdentifier = purpose === OtpPurpose.Reauth ? cfg.reauthMaxRequestsPerHour : cfg.maxRequestsPerHour;
+      await take(otpHourlyKey(purpose, input.rateLimitHash), perIdentifier);
+      ipSlotRelease = await take(otpIpKey(purpose, requestIp), cfg.maxRequestsPerIpPerHour);
+      await take(otpDeviceKey(purpose, input.deviceId, requestIp), cfg.maxRequestsPerDevicePerHour);
 
-    const otp = generateNumericOtp(cfg.length);
-    const record = await this.otpModel.create({
-      identifierHash,
-      channel: input.channel,
-      purpose: input.purpose,
-      otpHash: this.hashOtp(identifierHash, otp),
-      attempts: 0,
-      expiresAt: new Date(now.getTime() + cfg.ttlSeconds * 1000),
-      consumedAt: null,
-      requestIp: input.requestIp,
-    });
-    return { otp, record, releaseCooldown };
+      const now = new Date();
+      // One active code per identifier and purpose: a sign-in code never expires a pending step-up code.
+      await this.otpModel.update(
+        { expiresAt: now },
+        { where: { identifierHash, purpose, consumedAt: null, expiresAt: { [Op.gt]: now } } },
+      );
+
+      const otp = generateNumericOtp(cfg.length);
+      const record = await this.otpModel.create({
+        identifierHash,
+        channel: input.channel,
+        purpose,
+        otpHash: this.hashOtp(identifierHash, otp),
+        attempts: 0,
+        expiresAt: new Date(now.getTime() + cfg.ttlSeconds * 1000),
+        consumedAt: null,
+        requestIp,
+      });
+      const keepIpSlot = ipSlotRelease;
+      const release = async (): Promise<void> => {
+        await Promise.all(taken.filter((r) => r !== keepIpSlot).map((r) => r()));
+        await releaseCooldown();
+      };
+      return { otp, record, release };
+    } catch (err) {
+      // A refusal, or a Redis / MySQL failure: no code was issued, so nothing stays used.
+      await releaseAll();
+      throw err;
+    }
   }
 
   /**
@@ -196,13 +254,5 @@ export class OtpService {
     record.consumedAt = consumedAt;
     record.attempts += 1;
     return { ok: true, record };
-  }
-
-  /** The window frees a slot when its oldest code turns one hour old. */
-  private async tooManyRequests(where: WhereOptions<OtpVerification>, now: Date): Promise<AppException> {
-    const oldest = await this.otpModel.min<Date | null, OtpVerification>('createdAt', { where });
-    const freesAt = oldest ? new Date(oldest).getTime() + ONE_HOUR_MS : now.getTime() + ONE_HOUR_MS;
-    const retryAfterSeconds = Math.max(1, Math.ceil((freesAt - now.getTime()) / 1000));
-    return new AppException(ErrorCode.TooManyRequests, { retryAfterSeconds });
   }
 }

@@ -58,12 +58,12 @@ There is no separate `/me` route in the code; `GET /auth/me` is the spec's endpo
 | R4 | Consumed once by a conditional update | **done** | [x] | `test/integration/auth.int-spec.ts` "race: two parallel verifies of one code → exactly one success" |
 | R5 | One active code per identifier (a new code expires older ones) | **partial**: expires older codes, but two parallel requests can both pass the cooldown check and leave two active codes | [x] | Redis `SET NX` cooldown serialises issuance; `test/integration/auth.int-spec.ts` "…a new code expires the older one" (1 active row) |
 | R6 | 60 s cooldown → 429 `OTP_COOLDOWN` + `retryAfterSeconds` | **partial**: DB read, racy (see R5) | [x] | `test/integration/auth.int-spec.ts` "cooldown → 429 OTP_COOLDOWN with retryAfterSeconds" |
-| R7 | 5 codes / hour per identifier; 20 / hour per IP (config) | **partial**: per-IP cap is a constant, not `OTP_MAX_PER_IP_PER_HOUR` | [x] | `OTP_MAX_PER_IP_PER_HOUR`; `test/integration/auth.int-spec.ts` "hourly per-identifier cap…", "per-IP cap…" |
+| R7 | 5 codes / hour per identifier; 20 / hour per IP (config) | **partial**: per-IP cap is a constant, not `OTP_MAX_PER_IP_PER_HOUR` | [x] | `OTP_MAX_PER_IP_PER_HOUR`; since fix(M06) both are Redis sliding windows per purpose (see below); `test/integration/auth.int-spec.ts` "hourly per-identifier cap…", "per-IP cap…" |
 | R8 | HTTP throttle: request 5/min per IP, verify 10/min per IP | **done** | [x] | `test/integration/auth.int-spec.ts` "HTTP throttles…" |
 | R9 | No enumeration: same 200 for unknown, known, banned, deleted; same 401 `OTP_INVALID` for every verify failure | **partial**: same body, but banned users skip the cooldown and caps, so a second request within 60 s answers 200 for them and 429 for others | [x] | No account lookup in request; `test/integration/auth.int-spec.ts` "identical /otp/request responses…" (first and second request) |
 | R10 | Banned/suspended + correct code → 403 `ACCOUNT_RESTRICTED`, no tokens | **partial**: banned users never receive a code, so the rule can't be reached | [x] | `test/integration/auth.int-spec.ts` "banned or suspended user with the CORRECT code → 403…" |
 | R11 | SMS country allowlist (`OTP_SMS_ALLOWED_COUNTRIES`, +91) | **missing** | [x] | `otp-delivery.service.ts`; `test/integration/auth.int-spec.ts` "a number outside OTP_SMS_ALLOWED_COUNTRIES…"; unit spec |
-| R12 | Daily global SMS budget (`SMS_DAILY_BUDGET`, Redis per IST date), alert at 80 %, stop at 100 % | **missing** | [x] | `test/integration/auth.int-spec.ts` "daily SMS budget…"; unit spec (one alert each at 80 % and 100 %) |
+| R12 | Daily global SMS budget (`SMS_DAILY_BUDGET`, Redis per IST date), alert at 80 %, stop at 100 % (split into two pools in fix(M06), F1) | **missing** | [x] | `test/integration/auth.int-spec.ts` "daily SMS budget…"; unit spec (one alert each at 80 % and 100 %) |
 | R13 | `SmsProvider` / `EmailProvider` in `src/infra`; SES + fake email; fake SMS; production refuses `SMS_PROVIDER` unset or `fake`; `OTP_DEV_ECHO` refused in production | **partial**: one `DevOtpDeliveryService` that throws in production; echo refused in production | [x] | `src/infra/sms`, `src/infra/email`; `sms.spec.ts`; env spec "production refuses SMS_PROVIDER unset or fake" |
 | R14 | Access token HS256, 15 min, claims `{sub, sid, iss, aud}`; role from DB | **partial**: token also carries `role` (ignored by the strategy, read from the session cache) | [x] | `token.service.ts`; unit + `test/integration/auth.int-spec.ts` assert the claim set exactly |
 | R15 | Refresh token `<sessionId>.<64-char secret>`, stored as HMAC, rotated on every use | **done** (secret regex accepts 43–128 chars) | [x] | Secret must be exactly 64 chars; HMAC only ("no plaintext OTP or token is stored") |
@@ -84,7 +84,7 @@ There is no separate `/me` route in the code; `GET /auth/me` is the spec's endpo
 
 - Two migrations rebuild `otp_verifications` and `sessions` to the spec. Dev has 0 users, so existing rows are deleted and the tables recreated (counts printed by the migration).
 - New error handling: refresh failures return Appendix C `UNAUTHORIZED`; `INVALID_REFRESH_TOKEN` is removed.
-- Cooldown is an atomic Redis `SET NX EX 60` per identifier (serialises issuance, fixes R5/R6). Caps stay as indexed DB counts.
+- Cooldown is an atomic Redis `SET NX EX 60` per identifier (serialises issuance, fixes R5/R6). Caps stayed as indexed DB counts (fix(M06) moved them to Redis windows).
 - Every identifier goes through the same cooldown, caps and insert, so the response never depends on account state (R9). The code is sent to every allowed destination; a banned user who enters it gets 403 (R10).
 - Providers live in `src/infra/sms` and `src/infra/email`; OTP text, dev echo, country guard and budget live in auth's `OtpDeliveryService`.
 - Alerts move into the API process too (budget alerts), with new alert kinds.
@@ -108,6 +108,8 @@ The mobile app (`mobile-app/src/api/auth.ts`, `types.ts`, `account.ts`) still ca
 | Delete account | `DELETE /account` | Now needs a step-up within 10 min, else 403 `REAUTH_REQUIRED` |
 | Device fields | — | `deviceId` must match `^[A-Za-z0-9._:-]{1,100}$` (use the same value as `X-Device-Id`), `deviceName` 1–100 chars, `appVersion` `^[0-9A-Za-z.+-]{1,20}$`, `platform` `android`\|`ios`. Anything else is 400 `VALIDATION_ERROR` |
 | Types | `UserStatus` lacks `banned` | `banned` exists since M04 |
+| Device header (fix(M06)) | — | Send `X-Device-Id` (the same value as `deviceId`) on `POST /auth/otp/request`. Requests without it share a per-IP bucket of 10 codes per hour and may get 429 `TOO_MANY_REQUESTS` behind carrier NAT |
+| Session cap (fix(M06)) | — | Signing in on an 11th device signs out the least recently used one; it gets 401 `UNAUTHORIZED` on its next call or refresh |
 
 ## Deferred
 
@@ -121,11 +123,11 @@ The mobile app (`mobile-app/src/api/auth.ts`, `types.ts`, `account.ts`) still ca
 | Null identifiers of soft-deleted rows (from fix(M04)) | **M07** |
 | Selfie and photo onboarding providers | **M11**, **M12** |
 | Applying `VerifiedUserGuard` to routes | M11+ |
-| Security review M2: the global SMS budget can be used up by requests for random +91 numbers, which stops SMS sign-in for everyone until IST midnight. Options: reserve a share for identifiers of existing verified users (same response), and/or a per-/24 hourly cap | **Owner decision** |
-| Security review M3: email `+tag` / Gmail-dot aliases get their own cooldown and caps, and there is no email budget | **Owner decision** (changes M04 normalisation) |
-| Security review L1: requesting codes for a victim every 60 s expires their pending code and uses their hourly cap; login and step-up share the cooldown. Keying per (identifier, purpose) conflicts with "one active code per identifier" | **Owner decision** |
-| Security review L2: no cap on live sessions per user; the device list shows the 50 most recently used | **Owner decision** |
-| Security review L4: every invalid refresh writes a security event (rate-limited per IP only); dedupe per IP + reason | M15 (admin audit view) |
+| ~~Security review M2, M3, L1, L2, L4~~ | Decided by the owner and done in **fix(M06)**, below |
+| fix(M06) review H1: once the new-identifier SMS pool is used up, a request for an unknown number returns without calling the provider, while one for an existing account waits for the SMS provider. The latency difference shows whether a number has an account. Options: send SMS off the request path (in-process after the response; the 503 `OTP_DELIVERY_FAILED` would then never reach the client), or pad blocked requests to the provider's typical latency | **Owner decision** |
+| fix(M06) review M5: the email budget is one global pool, so 20,000 requests for random addresses stop email sign-in and email step-up for everyone until IST midnight. Option: the same new / existing split as SMS | **Owner decision** |
+| fix(M06) review L9: an attacker with a list of registered numbers can use up the reserve, and existing accounts then fall back to the new pool. Option: no fallback, or a per-IP share of the reserve | **Owner decision** |
+| fix(M06) review L7: Redis keys hold the raw IP bucket and `X-Device-Id` (as the M01 throttler's keys already hold IPs). Option: HMAC them | Owner decision (low) |
 
 ## Deviations and notes
 
@@ -135,10 +137,50 @@ The mobile app (`mobile-app/src/api/auth.ts`, `types.ts`, `account.ts`) still ca
 - **`DELETE /auth/sessions/:id` returns `NOT_FOUND`**, a pre-existing code that is not in Appendix C (like `VALIDATION_ERROR` details for the step-up channel). A malformed id is the same 404.
 - **`GET /auth/me` keeps `profile`** (the app reads it) and adds `nextStep`.
 - **`user_agent` / `ip_address` are NOT NULL as in the spec**, stored as `''` when the request has none. Requests without an IP share one per-IP bucket; production requires `TRUST_PROXY`, so `req.ip` is always set.
-- **Cooldown in Redis** (`kp:otp-cooldown:<identifier hash>`, `SET NX EX 60`), caps as indexed DB counts. A cap 429 or a failed delivery hands the cooldown back.
+- **Cooldown in Redis** (`kp:otp-cooldown:<purpose>:<canonical hash>` since fix(M06), `SET NX EX 60`). Caps are Redis sliding windows since fix(M06). A cap 429 or an unexpected error hands back the cooldown and every slot; a failed delivery hands back all but the IP slot.
 - **Session cleanup has no index** on `expires_at` / `revoked_at` (the spec lists two index sets only). The job walks the primary key with plain reads and deletes by id, once a day.
 - **Review hardening beyond the decisions:** production refuses `TRUST_PROXY=true` (a client-chosen `X-Forwarded-For` would bypass every per-IP limit); `OTP_DEV_ECHO` is refused outside development and test (staging included).
 - **New package:** `@aws-sdk/client-sesv2`, for the SES email provider (guide §3.2 lists SES). `npm audit` shows the same 9 pre-existing findings before and after.
+
+## Not in Appendix C
+
+| Code | HTTP | Used by |
+|---|---|---|
+| `NOT_FOUND` | 404 | `DELETE /auth/sessions/:sessionId` when the id is not one of the caller's live sessions (also malformed ids); otherwise unknown paths (M01) |
+
+## fix(M06): owner decisions on the security review
+
+| # | Decision | Where / how verified |
+|---|---|---|
+| F1 (M2) | `SMS_DAILY_BUDGET` is split into a new-identifier pool (`SMS_BUDGET_NEW_IDENTIFIER_PERCENT`, default 70) and a reserve for identifiers that already belong to an account (the rest, 30). Keys `kp:sms-budget:<new\|existing>:<IST date>`. Each pool alerts once at 80 % and once when used up. Existing accounts (and every step-up) use the reserve first, then the new pool; new identifiers never touch the reserve | `otp-delivery.service.ts` `takeSmsBudget`; unit "an exhausted new-identifier pool never blocks existing accounts", "existing accounts fall back…"; `auth.int-spec.ts` "a used-up new-identifier pool never blocks an existing account…", "the reserve pool alerts at 80 %…" |
+| F2 (M2) | Per-device cap on code requests: `OTP_MAX_PER_DEVICE_PER_HOUR` (10) per `X-Device-Id`; without the header, one shared `no-device` bucket per IP. Redis sliding window. The header is client-chosen, so the per-IP cap (20 / hour) is the real bound; the device cap slows ordinary clients behind one NAT | `otp.service.ts` `otpDeviceKey`; unit "per device…" (both); `auth.int-spec.ts` "per device: the 11th code…" |
+| F3 (M3) | Canonical email (`canonicalEmail`): lower-case, `+tag` removed on every domain, dots removed for gmail.com / googlemail.com, googlemail → gmail. Used for the OTP cooldown and caps here; ban checks use it from M07 (`ban_hashes`). The stored email and the code lookup are unchanged | `identifier.util.ts`; `OtpService.rateLimitHash`; unit "canonicalEmail…", "rateLimitHash…"; `auth.int-spec.ts` "email aliases … share one cooldown; the stored email stays as entered", "email aliases share one hourly cap" |
+| F4 (M3) | `EMAIL_DAILY_BUDGET` (20,000 per IST day): alert at 80 %, stop at 100 % with the same 200, an alert and `otp.email_budget_blocked` | Unit "email budget per IST date…"; `auth.int-spec.ts` "daily email budget…" |
+| F5 (L1) | Step-up (`purpose=reauth`) has its own cooldown, hourly cap (`OTP_REAUTH_MAX_PER_HOUR`, 5), per-IP count and device bucket. A new code expires older codes of the same purpose only | Unit "step-up has its own cooldown and hourly cap…", "expires older active codes of the same identifier and purpose only"; `auth.int-spec.ts` "sign-in code spam for the account never blocks its step-up…" |
+| F6 (L2) | `SESSION_MAX_PER_USER` (10) live sessions. A login beyond it revokes the least recently used (`replaced`), drops its cache key, and records `auth.session_revoked` with `cause: session_cap` (a same-device sign-in is `cause: same_device`) | `session.service.ts` `create`; unit "session cap…" (both); `auth.int-spec.ts` "an 11th live session revokes the least recently used one…" |
+| F7 (L4) | `auth.refresh_token_invalid` for tokens that name no real session (malformed, unknown session id) is written at most once per IP per 5 minutes (`kp:refresh-invalid-audit:<ip bucket>`, `SET NX EX 300`, like M05's restricted-user events). Failures against a real session (with a `userId`: hash mismatch, revoked, expired) and reuse detection are never throttled | `SessionStateService.takeAuditSlot`; unit "invalid refreshes are audited at most once per IP…"; `auth.int-spec.ts` "invalid refreshes write at most one security event per IP…" |
+
+Notes on the fix:
+
+- **Codes are still looked up by the exact identifier.** Only the cooldown and caps use the canonical form. Redeeming a code sent to `victim+x@corp.com` as `victim@corp.com` would be an account takeover on domains where `+` is part of the mailbox name.
+- **Every OTP cap is now an atomic Redis sliding window** (sorted set + one Lua script, Redis server clock): per canonical identifier (`kp:otp-hourly:<purpose>:<hash>`), per IP (`kp:otp-ip:<purpose>:<ip bucket>`) and per device. The per-identifier cap had to leave MySQL because `otp_verifications` stores only the exact hash; the per-IP count moved too, because check-then-insert in MySQL let parallel requests overshoot it (review). A cap that refuses, or a failed delivery, hands back the cooldown and every slot taken.
+- **An IPv6 /64 counts as one IP** (`ipBucket`) for the per-IP cap, the no-device bucket and the refresh-audit throttle (review). IPv4 and IPv4-mapped addresses are used as they are.
+- **Security events show the SMS pool only on a blocked send** (`budgetPool`); a sent code does not record it, so the log does not mark which identifiers have accounts.
+- **A failed delivery keeps the IP slot** (round 2 review): the cooldown, identifier and device slots are handed back, so a provider outage does not use up a user's allowance, but the IP cap still bounds retries. An unexpected Redis / MySQL error during issuance hands back everything.
+- **The account lookup runs after the caps pass**, so refused requests cost no extra query.
+- **The sliding-window script calls `TIME` before writing**, which needs Redis 5 or later (docker-compose runs Redis 7).
+- **`+tag` is removed on every domain**, as decided. On the few domains where `+` is part of the mailbox name, two different mailboxes then share one cooldown and cap (availability only; codes are still per exact address).
+- **"One active code per identifier" is now per identifier and purpose** (the owner's decision for L1). A sign-in code no longer expires a pending step-up code.
+- **`POST /auth/otp/request` now looks the account up**, only to pick the SMS pool. The lookup runs for every request and the response is identical (the no-enumeration test still passes).
+- **New env variables** (Appendix D, Auth / SMS / Email): `SESSION_MAX_PER_USER`, `OTP_MAX_PER_DEVICE_PER_HOUR`, `OTP_REAUTH_MAX_PER_HOUR`, `SMS_BUDGET_NEW_IDENTIFIER_PERCENT`, `EMAIL_DAILY_BUDGET`; in `.env.example`.
+
+### Review of fix(M06)
+
+Two reviewers ran in parallel, for 2 rounds.
+
+**Spec audit.** Round 1: no major; minor: ban checks don't use the canonical form yet (now stated as M07 work), single email pool / device-header rotation / reserve fallback (recorded), failed delivery kept the cap slots (fixed), the throttle hid user-linked events (fixed); nits: headerless bucket at its limit and config-derived budgets in the tests (fixed). Round 2: every fix holds; stale lines in this file (fixed).
+
+**Security review.** Round 1: H1 timing difference once the new pool is used up (owner decision, below); M3 non-atomic per-IP cap (fixed: Redis window), M4 IPv6 rotation (fixed: /64 buckets), M6 throttle scope (fixed), L8 pool in the audit log (fixed), L10 clock skew (fixed: Redis `TIME`), L11 eviction cause (fixed); M2, M5, L7, L9 recorded. Round 2: no critical or high; fixed: slots leaked on an unexpected error, unlimited retries after failed deliveries (IP slot kept), hex-form IPv4-mapped addresses, lookup before the caps, Redis version note. Accepted: one shared `unknown` IP bucket (production always has `req.ip`), a plain `DEL` of the cooldown on release (needs a failure slower than 60 s), `budgetPool` on blocked events (log readers only), the unit fake re-implements the Lua script (the real script runs in the integration tests: hourly, IP, device and no-device caps).
 
 ## Data changed by the migrations
 

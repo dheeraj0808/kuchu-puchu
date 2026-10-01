@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { getConnectionToken } from '@nestjs/sequelize';
@@ -9,9 +10,10 @@ import type { Sequelize } from 'sequelize-typescript';
 import request from 'supertest';
 
 import { OtpCleanupJob, SessionCleanupJob } from '../../src/auth/auth-cleanup.jobs';
-import { IdentifierType } from '../../src/auth/models/otp-verification.model';
-import { istDay, smsBudgetKey } from '../../src/auth/services/otp-delivery.service';
-import { otpCooldownKey, OtpService } from '../../src/auth/services/otp.service';
+import { IdentifierType, OtpPurpose } from '../../src/auth/models/otp-verification.model';
+import { emailBudgetKey, istDay, smsBudgetKey, smsPoolSizes } from '../../src/auth/services/otp-delivery.service';
+import type { EmailConfig, SmsConfig } from '../../src/config/messaging.config';
+import { otpCooldownKey, otpDeviceKey, otpIpKey, OtpService } from '../../src/auth/services/otp.service';
 import { AlertProvider } from '../../src/infra/alerts/alert.provider';
 import { REDIS_CLIENT } from '../../src/infra/redis/redis.module';
 import { UserStatus } from '../../src/users/models/user.model';
@@ -61,9 +63,9 @@ describe('M06 Auth (MySQL 8.4 + Redis)', () => {
     request(server)[method](`/api/v1${path}`).set('X-Forwarded-For', freshIp()).set('Authorization', `Bearer ${token}`);
 
   /** Lets another code be requested for the identifier now (the 60 s cooldown passing). */
-  async function clearCooldown(identifier: string): Promise<void> {
+  async function clearCooldown(identifier: string, purpose: OtpPurpose = OtpPurpose.Login): Promise<void> {
     const type = identifier.includes('@') ? IdentifierType.Email : IdentifierType.Phone;
-    await redis.del(otpCooldownKey(app.get(OtpService).hashIdentifier(type, identifier)));
+    await redis.del(otpCooldownKey(purpose, app.get(OtpService).rateLimitHash(type, identifier)));
   }
 
   const sessionRows = (userId: string) =>
@@ -317,14 +319,11 @@ describe('M06 Auth (MySQL 8.4 + Redis)', () => {
 
     it('per-IP cap: 20 codes in the last hour from one IP → 429 TOO_MANY_REQUESTS with retryAfterSeconds', async () => {
       const ip = freshIp();
-      // 20 codes from this IP in the last hour (the HTTP throttle allows only 5 per minute, so they are seeded).
-      for (let i = 0; i < 20; i++) {
-        await sequelize.query(
-          `INSERT INTO otp_verifications (id, identifier_hash, channel, purpose, otp_hash, expires_at, request_ip, created_at)
-           VALUES (:id, :h, 'email', 'login', :h, NOW(3), :ip, NOW(3) - INTERVAL 30 MINUTE)`,
-          { replacements: { id: randomUUID(), h: randomUUID().replace(/-/g, '').padEnd(64, '0'), ip } },
-        );
-      }
+      // 20 codes from this IP in the last hour (the HTTP throttle allows only 5 per minute, so the window is seeded).
+      const key = otpIpKey(OtpPurpose.Login, ip);
+      const thirtyMinAgo = Date.now() - 30 * 60_000;
+      for (let i = 0; i < 20; i++) await redis.zadd(key, thirtyMinAgo + i, `seed-${i}`);
+      await redis.pexpire(key, 3_600_000);
       const res = await otpRequest(uniqueEmail('ip'), ip).expect(429);
       expect(res.body.code).toBe('TOO_MANY_REQUESTS');
       expect(res.body.details.retryAfterSeconds).toBeGreaterThan(1700);
@@ -355,21 +354,23 @@ describe('M06 Auth (MySQL 8.4 + Redis)', () => {
       expect(Number(n)).toBeGreaterThanOrEqual(1);
     });
 
-    it('daily SMS budget (Redis, per IST date): alert at 80 %; at 100 % the same 200, no SMS, alert and security event', async () => {
-      const key = smsBudgetKey(istDay());
-      const budget = 10_000;
+    it('daily SMS budget, new-identifier pool (Redis, per IST date): alert at 80 %; at 100 % the same 200, no SMS, alert and security event', async () => {
+      const key = smsBudgetKey('new', istDay());
+      const budget = smsPoolSizes(app.get(ConfigService).getOrThrow<SmsConfig>('sms')).new;
       const alerts = jest.spyOn(app.get(AlertProvider), 'send');
       try {
         await redis.set(key, String(Math.ceil(budget * 0.8) - 1));
         await otpRequest(indianMobile()).expect(200);
-        expect(alerts).toHaveBeenCalledWith(expect.objectContaining({ kind: 'sms_budget_warning', used: 8000, budget }));
+        expect(alerts).toHaveBeenCalledWith(
+          expect.objectContaining({ kind: 'sms_budget_warning', used: Math.ceil(budget * 0.8), budget, pool: 'new' }),
+        );
 
         await redis.set(key, String(budget));
         const phone = indianMobile();
         const res = await otpRequest(phone).expect(200);
         expect(res.body.data.message).toBe('If the details are valid, a verification code has been sent.');
         expect(fakeSms(app).lastCodeFor(phone)).toBeUndefined();
-        expect(alerts).toHaveBeenCalledWith(expect.objectContaining({ kind: 'sms_budget_exhausted', budget }));
+        expect(alerts).toHaveBeenCalledWith(expect.objectContaining({ kind: 'sms_budget_exhausted', budget, pool: 'new' }));
         const [{ n }] = await select<{ n: number }>(
           `SELECT COUNT(*) AS n FROM security_events WHERE event_type = 'otp.sms_budget_blocked' AND created_at > NOW(3) - INTERVAL 1 MINUTE`,
         );
@@ -381,6 +382,194 @@ describe('M06 Auth (MySQL 8.4 + Redis)', () => {
       } finally {
         await redis.del(key);
       }
+    });
+  });
+
+  describe('SMS pools, aliases, email budget (fix M06)', () => {
+    it('a used-up new-identifier pool never blocks an existing account: its code comes from the reserve', async () => {
+      const day = istDay();
+      const newKey = smsBudgetKey('new', day);
+      const reserveKey = smsBudgetKey('existing', day);
+      const known = indianMobile();
+      await app.get(UsersService).createVerified(IdentifierType.Phone, known);
+      const before = Number((await redis.get(reserveKey)) ?? 0);
+      try {
+        await redis.set(newKey, String(smsPoolSizes(app.get(ConfigService).getOrThrow<SmsConfig>('sms')).new + 1));
+        const stranger = indianMobile();
+        const blocked = await otpRequest(stranger).expect(200);
+        const allowed = await otpRequest(known).expect(200);
+        // Same response either way.
+        expect(allowed.body).toEqual(blocked.body);
+        expect(fakeSms(app).lastCodeFor(stranger)).toBeUndefined();
+        expect(fakeSms(app).lastCodeFor(known)).toMatch(/^\d{6}$/);
+        expect(Number(await redis.get(reserveKey))).toBe(before + 1);
+        const [event] = await select<{ metadata: Record<string, unknown> }>(
+          `SELECT metadata FROM security_events WHERE event_type = 'otp.sms_budget_blocked' ORDER BY id DESC LIMIT 1`,
+        );
+        expect(event.metadata).toMatchObject({ budgetPool: 'new', identifierType: 'phone' });
+      } finally {
+        await redis.del(newKey);
+      }
+    });
+
+    it('the reserve pool alerts at 80 % of its own size', async () => {
+      const key = smsBudgetKey('existing', istDay());
+      const reserve = smsPoolSizes(app.get(ConfigService).getOrThrow<SmsConfig>('sms')).existing;
+      const alerts = jest.spyOn(app.get(AlertProvider), 'send');
+      const known = indianMobile();
+      await app.get(UsersService).createVerified(IdentifierType.Phone, known);
+      const before = await redis.get(key);
+      try {
+        await redis.set(key, String(Math.ceil(reserve * 0.8) - 1));
+        await otpRequest(known).expect(200);
+        expect(alerts).toHaveBeenCalledWith(
+          expect.objectContaining({ kind: 'sms_budget_warning', used: Math.ceil(reserve * 0.8), budget: reserve, pool: 'existing' }),
+        );
+      } finally {
+        if (before === null) await redis.del(key);
+        else await redis.set(key, before);
+      }
+    });
+
+    it('email aliases (+tag, Gmail dots, googlemail) share one cooldown; the stored email stays as entered', async () => {
+      const local = `kp${randomUUID().slice(0, 8)}`;
+      const dotted = `${local.slice(0, 3)}.${local.slice(3)}+dating@gmail.com`;
+      await otpRequest(`${local}@gmail.com`).expect(200);
+      for (const alias of [dotted, `${local}+x@googlemail.com`, `${local.toUpperCase()}@GMAIL.com`]) {
+        const res = await otpRequest(alias).expect(429);
+        expect(res.body.code).toBe('OTP_COOLDOWN');
+      }
+      // The code sent to the canonical address cannot be redeemed through an alias.
+      await otpVerify(dotted, lastCode(app, `${local}@gmail.com`)).expect(401);
+
+      await clearCooldown(dotted);
+      await otpRequest(dotted).expect(200);
+      const res = await otpVerify(dotted, lastCode(app, dotted)).expect(200);
+      expect(res.body.data.user.email).toBe(dotted);
+    });
+
+    it('email aliases share one hourly cap', async () => {
+      const local = `cap${randomUUID().slice(0, 8)}`;
+      for (let i = 0; i < 5; i++) {
+        await clearCooldown(`${local}@example.com`);
+        await otpRequest(`${local}+${i}@example.com`).expect(200);
+      }
+      await clearCooldown(`${local}@example.com`);
+      expect((await otpRequest(`${local}@example.com`).expect(429)).body.code).toBe('TOO_MANY_REQUESTS');
+    });
+
+    it('daily email budget: alert at 80 %; at 100 % the same 200, no email, alert and security event', async () => {
+      const key = emailBudgetKey(istDay());
+      const budget = app.get(ConfigService).getOrThrow<EmailConfig>('email').dailyBudget;
+      const alerts = jest.spyOn(app.get(AlertProvider), 'send');
+      try {
+        await redis.set(key, String(Math.ceil(budget * 0.8) - 1));
+        await otpRequest(uniqueEmail('ebudget')).expect(200);
+        expect(alerts).toHaveBeenCalledWith(expect.objectContaining({ kind: 'email_budget_warning', used: Math.ceil(budget * 0.8), budget }));
+
+        await redis.set(key, String(budget));
+        const email = uniqueEmail('ebudget');
+        const res = await otpRequest(email).expect(200);
+        expect(res.body.data.message).toBe('If the details are valid, a verification code has been sent.');
+        expect(fakeEmail(app).lastTo(email)).toBeUndefined();
+        expect(alerts).toHaveBeenCalledWith(expect.objectContaining({ kind: 'email_budget_exhausted', budget }));
+        const [{ n }] = await select<{ n: number }>(
+          `SELECT COUNT(*) AS n FROM security_events WHERE event_type = 'otp.email_budget_blocked' AND created_at > NOW(3) - INTERVAL 1 MINUTE`,
+        );
+        expect(Number(n)).toBeGreaterThanOrEqual(1);
+      } finally {
+        await redis.del(key);
+      }
+    });
+
+    it('per device: the 11th code within an hour from one X-Device-Id → 429 TOO_MANY_REQUESTS', async () => {
+      const deviceId = `dev-${randomUUID()}`;
+      const fromDevice = (identifier: string) =>
+        request(server).post('/api/v1/auth/otp/request').set('X-Forwarded-For', freshIp()).set('X-Device-Id', deviceId).send({ channel: 'email', identifier });
+      for (let i = 0; i < 10; i++) await fromDevice(uniqueEmail('device')).expect(200);
+      const res = await fromDevice(uniqueEmail('device')).expect(429);
+      expect(res.body.code).toBe('TOO_MANY_REQUESTS');
+      expect(res.body.details.retryAfterSeconds).toBeGreaterThan(3500);
+      // Without the header, requests count against a per-IP "no device" bucket instead.
+      await otpRequest(uniqueEmail('device')).expect(200);
+    });
+
+    it('without X-Device-Id: the 11th code within an hour from one IP → 429 (shared "no device" bucket)', async () => {
+      const ip = freshIp();
+      // 10 earlier headerless codes from this IP (seeded: the HTTP throttle allows 5 per minute).
+      const key = otpDeviceKey(OtpPurpose.Login, undefined, ip);
+      for (let i = 0; i < 10; i++) await redis.zadd(key, Date.now() - 60_000 + i, `seed-${i}`);
+      await redis.pexpire(key, 3_600_000);
+      expect((await otpRequest(uniqueEmail('nodev'), ip).expect(429)).body.code).toBe('TOO_MANY_REQUESTS');
+      // The same IP with a device id is not in that bucket.
+      await request(server)
+        .post('/api/v1/auth/otp/request')
+        .set('X-Forwarded-For', ip)
+        .set('X-Device-Id', `dev-${randomUUID()}`)
+        .send({ channel: 'email', identifier: uniqueEmail('nodev') })
+        .expect(200);
+    });
+
+    it('sign-in code spam for the account never blocks its step-up, and does not expire a pending step-up code', async () => {
+      const email = uniqueEmail('spam');
+      const a = await login(app, email);
+      await authed('post', '/auth/reauth/request', a.accessToken).send({}).expect(200);
+      const stepUpCode = lastCode(app, email);
+      // An attacker uses up the sign-in cooldown and hourly cap for the same address.
+      for (let i = 0; i < 6; i++) {
+        await clearCooldown(email);
+        await otpRequest(email);
+      }
+      await clearCooldown(email);
+      expect((await otpRequest(email).expect(429)).body.code).toBe('TOO_MANY_REQUESTS');
+      // The pending step-up code still works…
+      await authed('post', '/auth/reauth/verify', a.accessToken).send({ otp: stepUpCode }).expect(200);
+      // …and a new one can be requested (its own cooldown).
+      await clearCooldown(email, OtpPurpose.Reauth);
+      await authed('post', '/auth/reauth/request', a.accessToken).send({}).expect(200);
+    });
+  });
+
+  describe('session cap and audit throttling (fix M06)', () => {
+    it('an 11th live session revokes the least recently used one ("replaced") and drops its cache', async () => {
+      const email = uniqueEmail('cap');
+      const first = await login(app, email);
+      const others = [];
+      for (let i = 0; i < 9; i++) others.push(await openSession(app, first.userId));
+      // first is the least recently used; warm its cache so the revoke must delete it.
+      await sequelize.query('UPDATE sessions SET last_used_at = NOW(3) - INTERVAL 1 DAY WHERE id = :id', { replacements: { id: first.sessionId } });
+      await authed('get', '/auth/me', first.accessToken).expect(200);
+
+      await clearCooldown(email);
+      const eleventh = await login(app, email);
+      const rows = await sessionRows(first.userId);
+      expect(rows.filter((r) => r.revoked_at === null)).toHaveLength(10);
+      expect(rows.find((r) => r.id === first.sessionId)).toMatchObject({ revoked_reason: 'replaced' });
+      await authed('get', '/auth/me', first.accessToken).expect(401);
+      await authed('get', '/auth/me', others[0].accessToken).expect(200);
+      await authed('get', '/auth/me', eleventh.accessToken).expect(200);
+      const revoked = await securityEvents('auth.session_revoked', first.userId);
+      expect(revoked.map((e) => e.metadata)).toContainEqual(
+        expect.objectContaining({ sessionId: first.sessionId, reason: 'replaced', cause: 'session_cap' }),
+      );
+    });
+
+    it('invalid refreshes write at most one security event per IP per 5 minutes; every one is still a 401', async () => {
+      const ip = freshIp();
+      const countFor = async () =>
+        Number(
+          (
+            await select<{ n: number }>(
+              `SELECT COUNT(*) AS n FROM security_events WHERE event_type = 'auth.refresh_token_invalid' AND ip_address = :ip`,
+              { ip },
+            )
+          )[0].n,
+        );
+      for (let i = 0; i < 4; i++) {
+        const res = await request(server).post('/api/v1/auth/refresh').set('X-Forwarded-For', ip).send({ refreshToken: `${randomUUID()}.${'a'.repeat(64)}` });
+        expect(res.status).toBe(401);
+      }
+      expect(await countFor()).toBe(1);
     });
   });
 

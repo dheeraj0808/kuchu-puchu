@@ -10,6 +10,8 @@ export interface JwtConfig {
   sessionSlidingDays: number;
   /** Guide M06: absolute_expires_at = created_at + this; never extended. */
   sessionMaxDays: number;
+  /** Live sessions per user; a login beyond it revokes the least recently used. */
+  sessionMaxPerUser: number;
   issuer: string;
   audience: string;
 }
@@ -22,6 +24,7 @@ export default registerAs('jwt', (): JwtConfig => {
     accessExpiresIn: env.JWT_ACCESS_TTL,
     sessionSlidingDays: env.SESSION_SLIDING_DAYS,
     sessionMaxDays: env.SESSION_MAX_DAYS,
+    sessionMaxPerUser: env.SESSION_MAX_PER_USER,
     issuer: env.JWT_ISSUER,
     audience: env.JWT_AUDIENCE,
   };

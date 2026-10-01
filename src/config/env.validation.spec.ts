@@ -90,6 +90,22 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...base, [a]: secret('z'), [b]: secret('z') })).toThrow(/must differ/);
   });
 
+  it('fix(M06): SMS pool share, email budget, device / step-up caps and the session cap have defaults and bounds', () => {
+    const env = validateEnv(base);
+    expect(env).toMatchObject({
+      SMS_BUDGET_NEW_IDENTIFIER_PERCENT: 70,
+      EMAIL_DAILY_BUDGET: 20_000,
+      OTP_MAX_PER_DEVICE_PER_HOUR: 10,
+      OTP_REAUTH_MAX_PER_HOUR: 5,
+      SESSION_MAX_PER_USER: 10,
+    });
+    expect(validateEnv({ ...base, SMS_BUDGET_NEW_IDENTIFIER_PERCENT: '0' }).SMS_BUDGET_NEW_IDENTIFIER_PERCENT).toBe(0);
+    expect(() => validateEnv({ ...base, SMS_BUDGET_NEW_IDENTIFIER_PERCENT: '101' })).toThrow('SMS_BUDGET_NEW_IDENTIFIER_PERCENT');
+    expect(() => validateEnv({ ...base, EMAIL_DAILY_BUDGET: '0' })).toThrow('EMAIL_DAILY_BUDGET');
+    expect(() => validateEnv({ ...base, OTP_MAX_PER_DEVICE_PER_HOUR: '0' })).toThrow('OTP_MAX_PER_DEVICE_PER_HOUR');
+    expect(() => validateEnv({ ...base, SESSION_MAX_PER_USER: '0' })).toThrow('SESSION_MAX_PER_USER');
+  });
+
   it('rejects OTP_DEV_ECHO in production', () => {
     expect(() => validateEnv({ ...prod, OTP_DEV_ECHO: 'true' })).toThrow(/OTP_DEV_ECHO/);
   });

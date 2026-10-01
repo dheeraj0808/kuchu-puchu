@@ -21,8 +21,10 @@ export enum SecurityEventType {
   OtpDeliveryFailed = 'otp.delivery_failed',
   /** SMS fraud guard: the number's country is not in OTP_SMS_ALLOWED_COUNTRIES; nothing was sent. */
   OtpSmsCountryBlocked = 'otp.sms_country_blocked',
-  /** SMS fraud guard: the daily SMS budget is used up; nothing was sent. */
+  /** SMS fraud guard: the identifier's daily SMS budget pool is used up; nothing was sent. */
   OtpSmsBudgetBlocked = 'otp.sms_budget_blocked',
+  /** The daily OTP email budget is used up; nothing was sent. */
+  OtpEmailBudgetBlocked = 'otp.email_budget_blocked',
   UserRegistered = 'user.registered',
   LoginSucceeded = 'auth.login_succeeded',
   LoginBlocked = 'auth.login_blocked',

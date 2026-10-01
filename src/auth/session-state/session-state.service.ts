@@ -121,9 +121,17 @@ export class SessionStateService {
    * retrying in a loop produces one audit event, not one per request.
    * Redis down → true (auditing wins over deduplication).
    */
-  async takeRestrictionAuditSlot(sessionId: string): Promise<boolean> {
+  takeRestrictionAuditSlot(sessionId: string): Promise<boolean> {
+    return this.takeAuditSlot('restricted-audit', sessionId, SESSION_CACHE_TTL_SECONDS);
+  }
+
+  /**
+   * True at most once per (area, id) per ttlSeconds: SET kp:<area>:<id> NX EX.
+   * Used to deduplicate noisy audit events. Redis down → true.
+   */
+  async takeAuditSlot(area: string, id: string, ttlSeconds: number): Promise<boolean> {
     try {
-      const set = await this.redis.set(redisKey('restricted-audit', sessionId), '1', 'EX', SESSION_CACHE_TTL_SECONDS, 'NX');
+      const set = await this.redis.set(redisKey(area, id), '1', 'EX', ttlSeconds, 'NX');
       return set === 'OK';
     } catch {
       return true;

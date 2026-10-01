@@ -4,7 +4,7 @@ import { SesEmailProvider } from '../email/ses-email.provider';
 import { FakeSmsProvider } from './fake-sms.provider';
 import { createSmsProvider } from './sms.module';
 
-const sms = { apiKey: undefined, senderId: undefined, dltTemplateId: undefined, dailyBudget: 10 };
+const sms = { apiKey: undefined, senderId: undefined, dltTemplateId: undefined, dailyBudget: 10, newIdentifierPercent: 70 };
 
 describe('messaging adapters', () => {
   it('SMS: only the fake exists; any other provider name fails at boot', () => {
@@ -13,8 +13,8 @@ describe('messaging adapters', () => {
   });
 
   it('email: SES when EMAIL_FROM and SES_REGION are set, else the fake', () => {
-    expect(createEmailProvider({ from: 'a@b.co', sesRegion: 'ap-south-1' })).toBeInstanceOf(SesEmailProvider);
-    expect(createEmailProvider({ from: undefined, sesRegion: 'ap-south-1' })).toBeInstanceOf(FakeEmailProvider);
+    expect(createEmailProvider({ from: 'a@b.co', sesRegion: 'ap-south-1', dailyBudget: 10 })).toBeInstanceOf(SesEmailProvider);
+    expect(createEmailProvider({ from: undefined, sesRegion: 'ap-south-1', dailyBudget: 10 })).toBeInstanceOf(FakeEmailProvider);
   });
 
   it('SES sends one SendEmailCommand to the recipient, with the text body', async () => {
