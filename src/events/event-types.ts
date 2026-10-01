@@ -51,6 +51,10 @@ export interface EventPayloads {
   'call.ended': { callId: Id; matchId: Id };
   // M07 Account
   'account.deleted': { userId: Id };
+  /** Not in Appendix A: the worker builds the export ZIP (Appendix B "Data export builder"). */
+  'data_export.requested': { requestId: Id; userId: Id };
+  /** Not in Appendix A: delete export files after a commit (account deletion). */
+  'data_export.purge': { userId: Id; requestIds: Id[] };
 }
 
 export type EventType = keyof EventPayloads;
@@ -84,6 +88,8 @@ const KNOWN: Record<EventType, true> = {
   'call.started': true,
   'call.ended': true,
   'account.deleted': true,
+  'data_export.requested': true,
+  'data_export.purge': true,
 };
 
 export const EVENT_TYPES = Object.freeze(Object.keys(KNOWN) as EventType[]);

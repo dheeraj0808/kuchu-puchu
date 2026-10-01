@@ -3,6 +3,7 @@ import { SequelizeModule } from '@nestjs/sequelize';
 
 import { InterestsModule } from '../interests/interests.module';
 import { PreferencesModule } from '../preferences/preferences.module';
+import { PROFILE_ACCOUNT_HOOKS } from './account-hooks';
 import { Profile } from './models/profile.model';
 import { ProfileCompletionService } from './profile-completion.service';
 import { ProfileInterestsController } from './profile-interests.controller';
@@ -14,7 +15,7 @@ import { ProfilesService } from './profiles.service';
   imports: [SequelizeModule.forFeature([Profile]), InterestsModule, PreferencesModule],
   // ProfileInterestsController first so /profile/interests is matched before any /profile/:param route.
   controllers: [ProfileInterestsController, ProfilesController],
-  providers: [ProfilesService, ProfileCompletionService],
+  providers: [ProfilesService, ProfileCompletionService, ...PROFILE_ACCOUNT_HOOKS],
   exports: [ProfilesService],
 })
 export class ProfilesModule {}

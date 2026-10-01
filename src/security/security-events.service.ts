@@ -18,6 +18,12 @@ export interface RecordSecurityEventInput {
   metadata?: Record<string, unknown>;
   /** Writes inside the caller's transaction; without it the event is written on its own. */
   transaction?: Transaction;
+  /**
+   * With a transaction: any failure is rethrown, so the caller's change rolls
+   * back rather than committing without its audit row. For destructive
+   * actions (account deletion, data export).
+   */
+  strict?: boolean;
 }
 
 /** Guide M05: identifiers go in only as a 12-char HMAC prefix. */
@@ -93,7 +99,7 @@ export class SecurityEventsService {
   }
 
   /**
-   * Records an audit event. Never throws into the caller: any failure
+   * Records an audit event. Never throws into the caller (unless `strict`): any failure
    * (DB down, bad input) is logged with the error class only.
    * One exception, inside a caller's transaction: if the insert failed in a
    * way that already rolled that transaction back (deadlock, lost
@@ -101,6 +107,8 @@ export class SecurityEventsService {
    * for work that was undone.
    */
   async record(input: RecordSecurityEventInput): Promise<void> {
+    // A programming error, not an audit failure: strict means nothing without a transaction to roll back.
+    if (input?.strict && !input.transaction) throw new Error('SecurityEventsService.record: strict needs a transaction');
     try {
       const dropped: string[] = [];
       const metadata = input.metadata ? (stripPii(input.metadata, '', dropped) as Record<string, unknown>) : null;
@@ -121,7 +129,7 @@ export class SecurityEventsService {
       );
     } catch (err) {
       this.logger.error({ eventType: input?.eventType, err: (err as Error)?.name ?? typeof err }, 'Failed to record security event');
-      if (input?.transaction && abortsTransaction(err)) throw err;
+      if (input?.transaction && (input.strict || abortsTransaction(err))) throw err;
     }
   }
 }

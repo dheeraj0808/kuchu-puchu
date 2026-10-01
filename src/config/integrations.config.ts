@@ -15,10 +15,21 @@ export const redisConfig = registerAs('redis', (): RedisConfig => {
   return { url: env.REDIS_URL ?? DEFAULT_DEV_REDIS_URL, tls: env.REDIS_TLS };
 });
 
-// Placeholders for upcoming integrations. Not consumed yet.
-export const awsConfig = registerAs('aws', () => ({
-  region: getValidatedEnv().AWS_REGION ?? '',
-}));
+export interface AwsConfig {
+  region: string;
+  /** Private bucket (Block Public Access) for exports and other non-public files. */
+  privateBucket: string | undefined;
+  /** Local fake storage directory when S3 is not configured (development and test). */
+  localStorageDir: string | undefined;
+}
+
+/** S3 when AWS_REGION and S3_BUCKET_PRIVATE are set (required in production), otherwise the local fake. */
+export const awsConfig = registerAs('aws', (): AwsConfig => {
+  const env = getValidatedEnv();
+  return { region: env.AWS_REGION ?? '', privateBucket: env.S3_BUCKET_PRIVATE, localStorageDir: env.STORAGE_LOCAL_DIR };
+});
+
+// Placeholder for an upcoming integration. Not consumed yet.
 
 export const fcmConfig = registerAs('fcm', () => {
   const env = getValidatedEnv();

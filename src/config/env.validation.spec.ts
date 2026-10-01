@@ -30,6 +30,8 @@ const prod = {
   SMS_PROVIDER: 'dlt-sms',
   EMAIL_FROM: 'no-reply@kuchupuchu.example',
   SES_REGION: 'ap-south-1',
+  AWS_REGION: 'ap-south-1',
+  S3_BUCKET_PRIVATE: 'kuchu-puchu-private',
 };
 
 describe('validateEnv', () => {
@@ -104,6 +106,15 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...base, EMAIL_DAILY_BUDGET: '0' })).toThrow('EMAIL_DAILY_BUDGET');
     expect(() => validateEnv({ ...base, OTP_MAX_PER_DEVICE_PER_HOUR: '0' })).toThrow('OTP_MAX_PER_DEVICE_PER_HOUR');
     expect(() => validateEnv({ ...base, SESSION_MAX_PER_USER: '0' })).toThrow('SESSION_MAX_PER_USER');
+  });
+
+  it('M07: production needs AWS_REGION and S3_BUCKET_PRIVATE; bucket names are validated', () => {
+    expect(() => validateEnv({ ...prod, S3_BUCKET_PRIVATE: undefined })).toThrow('S3_BUCKET_PRIVATE must be set in production');
+    expect(() => validateEnv({ ...prod, AWS_REGION: undefined })).toThrow('S3_BUCKET_PRIVATE needs AWS_REGION');
+    expect(() => validateEnv({ ...prod, AWS_REGION: undefined, S3_BUCKET_PRIVATE: undefined })).toThrow('AWS_REGION and S3_BUCKET_PRIVATE must be set in production');
+    expect(() => validateEnv({ ...base, S3_BUCKET_PRIVATE: 'Bad_Bucket' })).toThrow('S3_BUCKET_PRIVATE');
+    expect(validateEnv(base).S3_BUCKET_PRIVATE).toBeUndefined();
+    expect(() => validateEnv({ ...base, S3_BUCKET_PRIVATE: 'kp-private' })).toThrow('S3_BUCKET_PRIVATE needs AWS_REGION');
   });
 
   it('rejects OTP_DEV_ECHO in production', () => {

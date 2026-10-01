@@ -20,6 +20,10 @@ import { HealthModule } from './health/health.module';
 import { SecurityModule } from './security/security.module';
 
 import { AccountModule } from './account/account.module';
+import { AccountRegistryModule } from './account/registry/account-registry';
+import { AuthAccountHooksModule } from './auth/account-hooks';
+import { BansModule } from './bans/bans.module';
+import { StorageModule } from './infra/storage/storage.module';
 import { AuthModule } from './auth/auth.module';
 import { LastActiveInterceptor } from './users/last-active.interceptor';
 import { UsersModule } from './users/users.module';
@@ -68,11 +72,15 @@ function observeImports(): DynamicModule[] {
     AlertsModule,
     SmsModule,
     EmailModule,
+    StorageModule,
+    AccountRegistryModule,
     HealthModule,
     EntitlementsModule,
     OnboardingModule,
 
     AuthModule,
+    AuthAccountHooksModule,
+    BansModule,
     AccountModule,
     UsersModule,
     ProfilesModule,

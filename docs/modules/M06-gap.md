@@ -119,15 +119,11 @@ The mobile app (`mobile-app/src/api/auth.ts`, `types.ts`, `account.ts`) still ca
 | `auth.new_device` / `auth.token_reuse` handlers (security push + email) | **M20** |
 | Appeal token for restricted users | **M15** |
 | `user.registered` handlers (analytics, welcome) | **M20** |
-| Data export step-up (`POST /account/export`) | **M07** |
-| Null identifiers of soft-deleted rows (from fix(M04)) | **M07** |
+| ~~Data export step-up (`POST /account/export`)~~ | Done in M07 |
+| ~~Null identifiers of soft-deleted rows (from fix(M04))~~ | Done in M07 (migration `20261008000001`) |
 | Selfie and photo onboarding providers | **M11**, **M12** |
 | Applying `VerifiedUserGuard` to routes | M11+ |
 | ~~Security review M2, M3, L1, L2, L4~~ | Decided by the owner and done in **fix(M06)**, below |
-| fix(M06) review H1: once the new-identifier SMS pool is used up, a request for an unknown number returns without calling the provider, while one for an existing account waits for the SMS provider. The latency difference shows whether a number has an account. Options: send SMS off the request path (in-process after the response; the 503 `OTP_DELIVERY_FAILED` would then never reach the client), or pad blocked requests to the provider's typical latency | **Owner decision** |
-| fix(M06) review M5: the email budget is one global pool, so 20,000 requests for random addresses stop email sign-in and email step-up for everyone until IST midnight. Option: the same new / existing split as SMS | **Owner decision** |
-| fix(M06) review L9: an attacker with a list of registered numbers can use up the reserve, and existing accounts then fall back to the new pool. Option: no fallback, or a per-IP share of the reserve | **Owner decision** |
-| fix(M06) review L7: Redis keys hold the raw IP bucket and `X-Device-Id` (as the M01 throttler's keys already hold IPs). Option: HMAC them | Owner decision (low) |
 
 ## Deviations and notes
 
@@ -141,6 +137,17 @@ The mobile app (`mobile-app/src/api/auth.ts`, `types.ts`, `account.ts`) still ca
 - **Session cleanup has no index** on `expires_at` / `revoked_at` (the spec lists two index sets only). The job walks the primary key with plain reads and deletes by id, once a day.
 - **Review hardening beyond the decisions:** production refuses `TRUST_PROXY=true` (a client-chosen `X-Forwarded-For` would bypass every per-IP limit); `OTP_DEV_ECHO` is refused outside development and test (staging included).
 - **New package:** `@aws-sdk/client-sesv2`, for the SES email provider (guide §3.2 lists SES). `npm audit` shows the same 9 pre-existing findings before and after.
+
+## Before real SMS goes live
+
+Accepted by the owner for now (2026-10-01). To be done when the DLT-approved SMS provider is wired in.
+
+| Item | Options |
+|---|---|
+| Timing difference (fix(M06) review H1): once the new-identifier SMS pool is used up, a request for an unknown number returns without calling the provider, while one for an existing account waits for it, so latency shows whether a number has an account | Send SMS off the request path (the 503 `OTP_DELIVERY_FAILED` would then never reach the client), or pad blocked requests to the provider's typical latency |
+| Single email budget (M5): 20,000 requests for random addresses stop email sign-in and step-up for everyone until IST midnight | The same new / existing split as SMS |
+| Reserve drain (L9): a list of registered numbers can use up the reserve; existing accounts then fall back to the new pool | No fallback, or a per-IP share of the reserve |
+| Raw IP bucket and `X-Device-Id` in Redis keys (L7), as the M01 throttler's keys already hold IPs | HMAC them |
 
 ## Not in Appendix C
 

@@ -3,6 +3,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { SequelizeModule } from '@nestjs/sequelize';
 
+import { BansModule } from '../bans/bans.module';
 import { EventsModule } from '../events/events.module';
 import { ProfilesModule } from '../profiles/profiles.module';
 import { UsersModule } from '../users/users.module';
@@ -22,6 +23,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 /** API side of M06. SmsProvider, EmailProvider and AlertProvider come from global infra modules. */
 @Module({
   imports: [
+    BansModule,
     UsersModule,
     ProfilesModule,
     EventsModule,

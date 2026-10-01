@@ -265,8 +265,20 @@ export class EnvironmentVariables {
   @Max(20000)
   PREFERENCES_MAX_DISTANCE_KM: number = 500;
 
-  // AWS / push (consumed by later modules)
-  @IsOptional() @IsString() AWS_REGION?: string;
+  // AWS / storage (M07). Credentials come from the IAM role, never from keys.
+  @IsOptional()
+  @Matches(/^[a-z]{2}(-[a-z]+)+-\d$/, { message: 'AWS_REGION must be an AWS region such as ap-south-1' })
+  AWS_REGION?: string;
+
+  /** Private bucket for data exports (and later private media). Required in production (checked below). */
+  @IsOptional()
+  @Matches(/^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/, { message: 'S3_BUCKET_PRIVATE must be an S3 bucket name' })
+  S3_BUCKET_PRIVATE?: string;
+
+  /** Directory for the local storage fake (development / test; not in Appendix D). Default: the OS temp dir. */
+  @IsOptional() @IsString() STORAGE_LOCAL_DIR?: string;
+
+  // Push (consumed by later modules)
   @IsOptional() @IsString() FCM_PROJECT_ID?: string;
   @IsOptional() @IsString() FCM_CLIENT_EMAIL?: string;
   @IsOptional() @IsString() FCM_PRIVATE_KEY?: string;
@@ -397,6 +409,13 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
   }
   if (isProd && (!validated.SMS_PROVIDER || validated.SMS_PROVIDER === 'fake')) {
     throw new Error('SMS_PROVIDER must name a real SMS provider in production (not unset or "fake")');
+  }
+  // Half an S3 config would silently fall back to local files.
+  if (validated.S3_BUCKET_PRIVATE && !validated.AWS_REGION) {
+    throw new Error('S3_BUCKET_PRIVATE needs AWS_REGION');
+  }
+  if (isProd && (!validated.AWS_REGION || !validated.S3_BUCKET_PRIVATE)) {
+    throw new Error('AWS_REGION and S3_BUCKET_PRIVATE must be set in production');
   }
   if (isProd && (!validated.EMAIL_FROM || !validated.SES_REGION)) {
     throw new Error('EMAIL_FROM and SES_REGION must be set in production');

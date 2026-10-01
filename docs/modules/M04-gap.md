@@ -38,9 +38,9 @@ Paths are relative to `backend/`.
 | Close matches on ban | **M16** |
 | Suspension lift job (`suspended_until` passed) | **M15** |
 | Callers of `setStatus` (moderation API) | **M15** |
-| Full account-deletion rework | **M07** |
+| ~~Full account-deletion rework~~ | Done in M07 (deletion registry) |
 | ~~`users.is_active`~~: dropped by migration `20261006000001-users-drop-is-active` (fix(M04), owner decision; 0 users) | done |
-| Null the email/phone of soft-deleted rows that still hold them (legacy rows deleted before identifiers were cleared). Until then `createVerified` refuses such an identifier with `IdentifierUnavailableError` (sign-in → generic 401 `OTP_INVALID`, warning logged with the user id only) instead of a 500 | **M07** |
+| Null the email/phone of soft-deleted rows that still hold them (legacy rows deleted before identifiers were cleared). Until then `createVerified` refuses such an identifier with `IdentifierUnavailableError` (sign-in → generic 401 `OTP_INVALID`, warning logged with the user id only) instead of a 500 | Done in M07 (migration `20261008000001`) |
 
 ## Deviations and review fixes
 

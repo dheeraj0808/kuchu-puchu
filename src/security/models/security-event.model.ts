@@ -42,6 +42,11 @@ export enum SecurityEventType {
   ProfileCreated = 'profile.created',
   ProfileDeleted = 'profile.deleted',
   AccountDeleted = 'account.deleted',
+  DataExportRequested = 'account.data_export_requested',
+  DataExportReady = 'account.data_export_ready',
+  /** A presigned download URL for an export was handed out (requestId only). */
+  DataExportUrlIssued = 'account.data_export_url_issued',
+  DataExportFailed = 'account.data_export_failed',
   UserStatusChanged = 'user.status_changed',
   /** A valid session was refused because the account is suspended, banned or deactivated. */
   AccountRestricted = 'auth.account_restricted',

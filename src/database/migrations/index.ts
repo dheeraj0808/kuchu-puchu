@@ -17,6 +17,9 @@ import * as securityEventsBigintActor from './20261005000001-security-events-big
 import * as usersDropIsActive from './20261006000001-users-drop-is-active';
 import * as rebuildOtpVerifications from './20261007000001-rebuild-otp-verifications';
 import * as rebuildSessions from './20261007000002-rebuild-sessions';
+import * as usersNullDeletedIdentifiers from './20261008000001-users-null-deleted-identifiers';
+import * as createDataExportRequests from './20261008000002-create-data-export-requests';
+import * as createBanHashes from './20261008000003-create-ban-hashes';
 
 export interface MigrationDefinition {
   name: string;
@@ -42,4 +45,7 @@ export const migrations: MigrationDefinition[] = [
   { name: '20261006000001-users-drop-is-active', ...usersDropIsActive },
   { name: '20261007000001-rebuild-otp-verifications', ...rebuildOtpVerifications },
   { name: '20261007000002-rebuild-sessions', ...rebuildSessions },
+  { name: '20261008000001-users-null-deleted-identifiers', ...usersNullDeletedIdentifiers },
+  { name: '20261008000002-create-data-export-requests', ...createDataExportRequests },
+  { name: '20261008000003-create-ban-hashes', ...createBanHashes },
 ];

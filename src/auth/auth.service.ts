@@ -2,6 +2,7 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/sequelize';
 import type { Sequelize } from 'sequelize-typescript';
 
+import { BanHashesService } from '../bans/ban-hashes.service';
 import { OnboardingService } from '../common/onboarding/onboarding.service';
 import { AppException, ErrorCode } from '../common/exceptions/app.exception';
 import type { RequestContext } from '../common/utils/request-context';
@@ -61,7 +62,8 @@ interface IssueRequest {
 }
 
 type LoginOutcome =
-  | { kind: 'restricted'; userId: string }
+  /** userId null: no account yet, but the identifier (canonical form) is in ban_hashes. */
+  | { kind: 'restricted'; userId: string | null }
   | {
       kind: 'ok';
       user: User;
@@ -91,6 +93,7 @@ export class AuthService {
     private readonly onboarding: OnboardingService,
     private readonly profiles: ProfilesService,
     @InjectConnection() private readonly sequelize: Sequelize,
+    private readonly bans: BanHashesService,
   ) {}
 
   /**
@@ -147,6 +150,8 @@ export class AuthService {
           // The row lock serialises logins of one user, so one device never ends up with two live sessions.
           if (found) user = await this.users.findByIdForUpdate(found.id, transaction);
           if (!user) {
+            // Ban evasion (M07): a new account for an identifier, or an alias of one, that a deleted banned account held.
+            if (await this.bans.isIdentifierBanned(type, identifier, transaction)) return { kind: 'restricted', userId: null };
             const created = await this.users.createVerified(type, identifier, transaction);
             user = created.user;
             isNewUser = created.created;
@@ -186,7 +191,11 @@ export class AuthService {
         eventType: SecurityEventType.LoginBlocked,
         userId: outcome.userId,
         context: ctx,
-        metadata: { identifierType: type, stage: 'verify_otp' },
+        metadata: {
+          identifierType: type,
+          stage: 'verify_otp',
+          ...(outcome.userId === null ? { reason: 'ban_hash', identifierHashPrefix } : {}),
+        },
       });
       throw new AppException(ErrorCode.AccountRestricted);
     }

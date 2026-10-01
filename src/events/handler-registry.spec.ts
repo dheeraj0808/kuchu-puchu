@@ -45,7 +45,7 @@ describe('HandlerRegistry', () => {
 });
 
 describe('event types', () => {
-  it('match Appendix A exactly', () => {
+  it('match Appendix A, plus the two M07 export events (documented in M07-gap.md)', () => {
     expect([...EVENT_TYPES].sort()).toEqual(
       [
         'user.registered',
@@ -75,6 +75,8 @@ describe('event types', () => {
         'call.started',
         'call.ended',
         'account.deleted',
+        'data_export.requested',
+        'data_export.purge',
       ].sort(),
     );
     for (const t of EVENT_TYPES) expect(t.length).toBeLessThanOrEqual(64);

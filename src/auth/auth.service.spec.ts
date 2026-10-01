@@ -3,6 +3,7 @@ import 'reflect-metadata';
 import { HttpStatus } from '@nestjs/common';
 import type { Sequelize } from 'sequelize-typescript';
 
+import type { BanHashesService } from '../bans/ban-hashes.service';
 import type { OnboardingService } from '../common/onboarding/onboarding.service';
 import { AppException, ErrorCode } from '../common/exceptions/app.exception';
 import type { OutboxService } from '../events/outbox.service';
@@ -56,6 +57,7 @@ function setup() {
   const profiles = { getOwnOrNull: jest.fn().mockResolvedValue(null) };
   const tx = { id: 'tx' };
   const sequelize = { transaction: jest.fn((fn: (t: object) => Promise<unknown>) => fn(tx)) };
+  const bans = { isIdentifierBanned: jest.fn().mockResolvedValue(false) };
   const service = new AuthService(
     otp as unknown as OtpService,
     delivery as unknown as OtpDeliveryService,
@@ -67,8 +69,9 @@ function setup() {
     onboarding as unknown as OnboardingService,
     profiles as unknown as ProfilesService,
     sequelize as unknown as Sequelize,
+    bans as unknown as BanHashesService,
   );
-  return { service, otp, delivery, sessions, tokens, users, events, outbox, onboarding, tx };
+  return { service, otp, delivery, sessions, tokens, users, events, outbox, onboarding, tx, bans };
 }
 
 const eventTypes = (events: { record: jest.Mock }): string[] =>
@@ -192,6 +195,21 @@ describe('AuthService', () => {
       expect(eventTypes(s.events)).toEqual(
         expect.arrayContaining([SecurityEventType.NewDevice, SecurityEventType.SessionRevoked, SecurityEventType.LoginSucceeded]),
       );
+    });
+
+    it('a NEW account for an identifier in ban_hashes (canonical form) → 403 ACCOUNT_RESTRICTED; no user, no session', async () => {
+      const s = setup();
+      s.otp.verify.mockResolvedValue({ ok: true, record: { id: 'r1' } });
+      s.bans.isIdentifierBanned.mockResolvedValue(true);
+      await expect(s.service.verifyOtp(dto, ctx)).rejects.toMatchObject({ code: ErrorCode.AccountRestricted });
+      expect(s.bans.isIdentifierBanned).toHaveBeenCalledWith('email', EMAIL, s.tx);
+      expect(s.users.createVerified).not.toHaveBeenCalled();
+      expect(s.sessions.create).not.toHaveBeenCalled();
+      const blocked = s.events.record.mock.calls.map((c) => c[0] as { eventType: string; userId: unknown; metadata: Record<string, unknown> });
+      expect(blocked.find((e) => e.eventType === SecurityEventType.LoginBlocked)).toMatchObject({
+        userId: null,
+        metadata: { reason: 'ban_hash', stage: 'verify_otp' },
+      });
     });
 
     it.each([UserStatus.Banned, UserStatus.Suspended])('%s user with the correct code → 403 ACCOUNT_RESTRICTED, no session', async (status) => {

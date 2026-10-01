@@ -136,4 +136,16 @@ describe('SecurityEventsService.record', () => {
       }),
     ).resolves.toBeUndefined();
   });
+
+  it('strict + transaction: any failure is rethrown, so the caller rolls back instead of committing unaudited', async () => {
+    jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+    const invalid = Object.assign(new Error('x'), { name: 'SequelizeValidationError' });
+    const model = { create: jest.fn().mockRejectedValue(invalid) };
+    const service = new SecurityEventsService(model as never, config as never);
+    await expect(
+      service.record({ eventType: SecurityEventType.AccountDeleted, transaction: {} as never, strict: true }),
+    ).rejects.toBe(invalid);
+    // strict without a transaction is a programming error.
+    await expect(service.record({ eventType: SecurityEventType.AccountDeleted, strict: true })).rejects.toThrow('strict needs a transaction');
+  });
 });

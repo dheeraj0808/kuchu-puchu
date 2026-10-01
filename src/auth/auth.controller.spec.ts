@@ -1,5 +1,7 @@
 import 'reflect-metadata';
 
+import type { BanHashesService } from '../bans/ban-hashes.service';
+
 import type { INestApplication } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtModule, JwtService } from '@nestjs/jwt';
@@ -74,6 +76,7 @@ describe('AuthController (GET /auth/me, POST /auth/logout-all) with real JwtStra
               onboardingMock as unknown as OnboardingService,
               profilesMock as unknown as ProfilesService,
               {} as Sequelize,
+              {} as BanHashesService,
             ),
         },
       ],
