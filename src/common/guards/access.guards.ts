@@ -40,8 +40,9 @@ export class RolesGuard implements CanActivate {
 /**
  * Most dating features need an approved live selfie (guide: "Verified user").
  * Otherwise 403 ONBOARDING_INCOMPLETE with details.nextStep from
- * OnboardingService, so the app can send the user to the right screen.
- * Applied to routes once M11 exists.
+ * OnboardingService (computed from the real M11 approval state), so the app
+ * can send the user to the right screen. Not applied to any route yet: the
+ * dating modules (M12 onward) add it to theirs.
  */
 @Injectable()
 export class VerifiedUserGuard implements CanActivate {

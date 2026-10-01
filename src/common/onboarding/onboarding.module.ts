@@ -4,6 +4,8 @@ import { PreferencesModule } from '../../preferences/preferences.module';
 import { PreferencesService } from '../../preferences/preferences.service';
 import { ProfilesModule } from '../../profiles/profiles.module';
 import { ProfilesService } from '../../profiles/profiles.service';
+import { VerificationModule } from '../../verification/verification.module';
+import { VerificationService } from '../../verification/verification.service';
 import {
   OnboardingService,
   PhotosStepProvider,
@@ -12,11 +14,15 @@ import {
   SelfieStepProvider,
 } from './onboarding.service';
 
-/** Stub until M11 (live verification): nobody has an approved selfie yet. */
+/** M11: the live selfie is approved (moderation can withdraw it with requireReverification). */
 @Injectable()
-export class PendingSelfieStep extends SelfieStepProvider {
-  isDone(_userId: string): Promise<boolean> {
-    return Promise.resolve(false);
+export class SelfieApprovedStep extends SelfieStepProvider {
+  constructor(private readonly verification: VerificationService) {
+    super();
+  }
+
+  isDone(userId: string): Promise<boolean> {
+    return this.verification.isFaceApproved(userId);
   }
 }
 
@@ -51,15 +57,15 @@ export class PreferencesSavedStep extends PreferencesStepProvider {
 }
 
 /**
- * OnboardingService for the API (guide M06). M11 and M12 replace the selfie
- * and photo stubs here without changing callers.
+ * OnboardingService for the API (guide M06). The selfie step is M11's real
+ * approval state; M12 replaces the photo stub here without changing callers.
  */
 @Global()
 @Module({
-  imports: [ProfilesModule, PreferencesModule],
+  imports: [VerificationModule, ProfilesModule, PreferencesModule],
   providers: [
     OnboardingService,
-    { provide: SelfieStepProvider, useClass: PendingSelfieStep },
+    { provide: SelfieStepProvider, useClass: SelfieApprovedStep },
     { provide: PhotosStepProvider, useClass: PendingPhotosStep },
     { provide: ProfileStepProvider, useClass: ProfileExistsStep },
     { provide: PreferencesStepProvider, useClass: PreferencesSavedStep },
