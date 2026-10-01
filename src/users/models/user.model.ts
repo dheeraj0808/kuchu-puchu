@@ -72,11 +72,6 @@ export class User extends Model {
   })
   role: UserRole;
 
-  /** Not in the spec; kept for existing data, never read by canAuthenticate(). */
-  @Default(true)
-  @Column({ type: DataType.BOOLEAN, allowNull: false })
-  isActive: boolean;
-
   /** Set with status suspended; the M15 lift job clears it. */
   @Column(DataType.DATE(3))
   suspendedUntil: Date | null;

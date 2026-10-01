@@ -9,7 +9,7 @@ import type { RequestContext } from '../common/utils/request-context';
 import { SecurityEventType } from '../security/models/security-event.model';
 import { SecurityEventsService } from '../security/security-events.service';
 import type { User } from '../users/models/user.model';
-import { UsersService } from '../users/users.service';
+import { IdentifierUnavailableError, UsersService } from '../users/users.service';
 import { AuthTokensResponse } from './dto/auth-tokens.response';
 import type { LogoutDto } from './dto/logout.dto';
 import { MessageResponse } from './dto/message.response';
@@ -198,7 +198,16 @@ export class AuthService {
         );
         return { user, ...created };
       }),
-    );
+    ).catch(async (err: unknown) => {
+      if (!(err instanceof IdentifierUnavailableError)) throw err;
+      // A deleted account still holds the identifier: treated as not found, the same 401 as any verify failure.
+      await this.securityEvents.record({
+        eventType: SecurityEventType.OtpVerificationFailed,
+        context: ctx,
+        metadata: { identifierType: type, identifierHashPrefix, reason: 'identifier_unavailable' },
+      });
+      throw new AppException(ErrorCode.OtpInvalid);
+    });
 
     if (!outcome) {
       await this.securityEvents.record({

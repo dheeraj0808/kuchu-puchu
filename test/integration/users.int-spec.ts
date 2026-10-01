@@ -9,6 +9,7 @@ import request from 'supertest';
 
 import { IdentifierType } from '../../src/auth/models/otp-verification.model';
 import { AuthService } from '../../src/auth/auth.service';
+import { OtpDeliveryService } from '../../src/auth/services/otp-delivery.service';
 import { OtpService } from '../../src/auth/services/otp.service';
 import { SessionService } from '../../src/auth/services/session.service';
 import { TokenService } from '../../src/auth/services/token.service';
@@ -320,6 +321,47 @@ describe('M04 Users (MySQL + Redis)', () => {
     );
   });
 
+  it('an identifier still held by a soft-deleted row: sign-in is the generic 401 OTP_INVALID, not a 500', async () => {
+    const phone = indianMobile();
+    const deletedId = randomUUID();
+    await sequelize.query(
+      `INSERT INTO users (id, phone, status, role, created_at, updated_at, deleted_at)
+       VALUES (:id, :phone, 'deactivated', 'user', NOW(3), NOW(3), NOW(3))`,
+      { replacements: { id: deletedId, phone } },
+    );
+    let code = '';
+    const send = jest.spyOn(app.get(OtpDeliveryService), 'send').mockImplementation(async (_t, _i, otp) => {
+      code = otp;
+    });
+    try {
+      const server = app.getHttpServer();
+      const from = '198.51.100.91';
+      await request(server)
+        .post('/api/v1/auth/request-otp')
+        .set('X-Forwarded-For', from)
+        .send({ identifierType: 'phone', identifier: phone })
+        .expect(200);
+      const res = await request(server)
+        .post('/api/v1/auth/verify-otp')
+        .set('X-Forwarded-For', from)
+        .send({ identifierType: 'phone', identifier: phone, otp: code });
+      expect(res.status).toBe(401);
+      expect(res.body.code).toBe('OTP_INVALID');
+      const [{ n }] = await sequelize.query<{ n: number }>('SELECT COUNT(*) AS n FROM users WHERE phone = :phone', {
+        replacements: { phone },
+        type: QueryTypes.SELECT,
+      });
+      expect(Number(n)).toBe(1);
+    } finally {
+      send.mockRestore();
+      await sequelize.query('DELETE FROM users WHERE id = :id', { replacements: { id: deletedId } });
+    }
+  });
+
+  it('users.is_active is gone', async () => {
+    expect(await sequelize.getQueryInterface().describeTable('users')).not.toHaveProperty('is_active');
+  });
+
   it('health requests never touch last activity', async () => {
     const a = await signedIn();
     await request(app.getHttpServer())
@@ -374,8 +416,8 @@ describe('M04 users migration (is_banned → status)', () => {
       deleted: boolean,
     ): Promise<void> => {
       await sequelize.query(
-        `INSERT INTO users (id, status, role, is_active, is_banned, created_at, updated_at, deleted_at)
-         VALUES (:id, :status, 'user', 1, :isBanned, NOW(3), NOW(3), ${deleted ? 'NOW(3)' : 'NULL'})`,
+        `INSERT INTO users (id, status, role, is_banned, created_at, updated_at, deleted_at)
+         VALUES (:id, :status, 'user', :isBanned, NOW(3), NOW(3), ${deleted ? 'NOW(3)' : 'NULL'})`,
         { replacements: { id, status, isBanned } },
       );
     };

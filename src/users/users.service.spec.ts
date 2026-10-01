@@ -5,10 +5,16 @@ import { UniqueConstraintError } from 'sequelize';
 import { IdentifierType } from '../auth/models/otp-verification.model';
 import { fakeUser } from '../auth/testing/fakes';
 import { type User, UserStatus } from './models/user.model';
-import { UsersService } from './users.service';
+import { IdentifierUnavailableError, UsersService } from './users.service';
 
 function setup() {
-  const userModel = { findOne: jest.fn(), create: jest.fn(), update: jest.fn().mockResolvedValue([1]) };
+  const userModel = {
+    findOne: jest.fn(),
+    create: jest.fn(),
+    update: jest.fn().mockResolvedValue([1]),
+    unscoped: jest.fn(),
+  };
+  userModel.unscoped.mockReturnValue(userModel);
   const redis = { set: jest.fn() };
   const service = new UsersService(
     userModel as never,
@@ -48,7 +54,22 @@ describe('UsersService', () => {
     s.userModel.findOne.mockResolvedValue(existing);
     const tx = { LOCK: { SHARE: 'SHARE' } } as never;
     await expect(s.service.createVerified(IdentifierType.Email, 'a@b.co', tx)).resolves.toEqual({ user: existing, created: false });
-    expect(s.userModel.findOne).toHaveBeenCalledWith(expect.objectContaining({ lock: 'SHARE', transaction: tx }));
+    expect(s.userModel.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({ lock: 'SHARE', transaction: tx, paranoid: false }),
+    );
+  });
+
+  it('createVerified refuses an identifier held by a soft-deleted row (no 500) and logs the user id only', async () => {
+    const s = setup();
+    const deleted = fakeUser({ deletedAt: new Date(), email: 'a@b.co' });
+    s.userModel.create.mockRejectedValue(new UniqueConstraintError({}));
+    s.userModel.findOne.mockResolvedValue(deleted);
+    const warn = jest.spyOn((s.service as unknown as { logger: { warn: jest.Mock } }).logger, 'warn').mockImplementation();
+    await expect(s.service.createVerified(IdentifierType.Email, 'a@b.co')).rejects.toBeInstanceOf(
+      IdentifierUnavailableError,
+    );
+    expect(warn).toHaveBeenCalledWith({ userId: deleted.id }, expect.any(String));
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('a@b.co');
   });
 
   it('touchLastActive updates only when the throttle key was newly set, and never throws', async () => {

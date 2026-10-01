@@ -10,7 +10,7 @@ import { AppException, ErrorCode } from '../common/exceptions/app.exception';
 import { SecurityEventType } from '../security/models/security-event.model';
 import { UserResponseDto } from '../users/dto/user-response.dto';
 import type { User } from '../users/models/user.model';
-import type { UsersService } from '../users/users.service';
+import { IdentifierUnavailableError, type UsersService } from '../users/users.service';
 import { AuthService, OTP_REQUEST_MESSAGE } from './auth.service';
 import { IdentifierType } from './models/otp-verification.model';
 import type { OtpDeliveryService } from './services/otp-delivery.service';
@@ -150,6 +150,16 @@ describe('AuthService', () => {
       expect(eventTypes(s.events)).toEqual(
         expect.arrayContaining([SecurityEventType.UserRegistered, SecurityEventType.LoginSucceeded]),
       );
+    });
+
+    it('an identifier held by a deleted account → the same 401 OTP_INVALID, no session (not a 500)', async () => {
+      const s = setup();
+      s.otp.verify.mockResolvedValue({ ok: true, record: { id: 'r1' } });
+      s.users.createVerified.mockRejectedValue(new IdentifierUnavailableError());
+      const err = await s.service.verifyOtp(dto, ctx).catch((e: unknown) => e);
+      expect(err).toMatchObject({ code: ErrorCode.OtpInvalid });
+      expect((err as AppException).getStatus()).toBe(HttpStatus.UNAUTHORIZED);
+      expect(s.sessions.create).not.toHaveBeenCalled();
     });
 
     it('blocks restricted accounts with 403 and no session', async () => {

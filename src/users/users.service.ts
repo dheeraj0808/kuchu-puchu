@@ -23,6 +23,19 @@ export const LAST_ACTIVE_THROTTLE_SECONDS = 300;
 /** Status-change reasons are codes, never free text (they go into audit metadata). */
 const REASON = /^[a-z0-9_.]{1,64}$/;
 
+/**
+ * createVerified: the identifier belongs to a soft-deleted account, so no new
+ * user can take it. Callers treat it as "not found" (sign-in fails like any
+ * other verify failure); it never reaches a client as a 500.
+ */
+export class IdentifierUnavailableError extends Error {
+  override readonly name = 'IdentifierUnavailableError';
+
+  constructor() {
+    super('Identifier is held by a deleted account');
+  }
+}
+
 export interface SetStatusOptions {
   /** Required with `suspended`, and must be in the future. */
   until?: Date;
@@ -70,12 +83,19 @@ export class UsersService {
       return { user: await this.userModel.create({ ...attrs, lastLoginAt: now }, { transaction }), created: true };
     } catch (err) {
       if (!(err instanceof UniqueConstraintError)) throw err;
-      const existing = await this.userModel.findOne({
+      // Unscoped and paranoid: false, so a soft-deleted row that still holds the identifier is found with its deletedAt.
+      const existing = await this.userModel.unscoped().findOne({
         where: this.identifierWhere(type, value),
+        paranoid: false,
         transaction,
         ...(transaction ? { lock: transaction.LOCK.SHARE } : {}),
       });
       if (!existing) throw err;
+      if (existing.deletedAt) {
+        // Deletion nulls identifiers, so only rows deleted before that rule get here (fix in M07).
+        this.logger.warn({ userId: existing.id }, 'Identifier is still held by a deleted account; sign-in refused');
+        throw new IdentifierUnavailableError();
+      }
       return { user: existing, created: false };
     }
   }
@@ -161,7 +181,6 @@ export class UsersService {
       phone: null,
       emailVerifiedAt: null,
       phoneVerifiedAt: null,
-      isActive: false,
       status: UserStatus.Deactivated,
     });
     await user.save({ transaction });

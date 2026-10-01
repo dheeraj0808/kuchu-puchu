@@ -13,7 +13,6 @@ export function fakeUser(overrides: Partial<User> = {}): User {
     phoneVerifiedAt: null,
     status: UserStatus.Active,
     role: UserRole.User,
-    isActive: true,
     deletedAt: null,
     lastLoginAt: null,
     createdAt: new Date('2026-01-01T00:00:00Z'),

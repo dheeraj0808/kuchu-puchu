@@ -39,7 +39,8 @@ Paths are relative to `backend/`.
 | Suspension lift job (`suspended_until` passed) | **M15** |
 | Callers of `setStatus` (moderation API) | **M15** |
 | Full account-deletion rework | **M07** |
-| `users.is_active`: not in the spec and no longer read by `canAuthenticate`. Kept, because dropping it deletes data beyond the decisions. | Owner decision (drop in a later migration?) |
+| ~~`users.is_active`~~: dropped by migration `20261006000001-users-drop-is-active` (fix(M04), owner decision; 0 users) | done |
+| Null the email/phone of soft-deleted rows that still hold them (legacy rows deleted before identifiers were cleared). Until then `createVerified` refuses such an identifier with `IdentifierUnavailableError` (sign-in → generic 401 `OTP_INVALID`, warning logged with the user id only) instead of a 500 | **M07** |
 
 ## Deviations and review fixes
 
@@ -67,4 +68,4 @@ Paths are relative to `backend/`.
 
 ## Review
 
-One combined spec + security review found 1 major, 5 minor and 4 nits. Fixed: the major (replaced-device sessions left in the cache), every minor (awaited afterCommit invalidation, stale re-cache, deadlock retry, stronger concurrency test, interceptor unit test) and three nits (no-op `setStatus`, `me()` → 403, migration phone check). Left as is: soft-deleted legacy rows that still hold a phone would make `createVerified` rethrow; there are 0 users today.
+One combined spec + security review found 1 major, 5 minor and 4 nits. Fixed: the major (replaced-device sessions left in the cache), every minor (awaited afterCommit invalidation, stale re-cache, deadlock retry, stronger concurrency test, interceptor unit test) and three nits (no-op `setStatus`, `me()` → 403, migration phone check). Left as is at the time: soft-deleted legacy rows that still hold a phone made `createVerified` rethrow. Fixed in fix(M04): it now refuses them cleanly (see Deferred → M07 for the data fix).
