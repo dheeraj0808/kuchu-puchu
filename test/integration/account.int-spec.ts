@@ -36,6 +36,7 @@ import { RelationshipIntent } from '../../src/preferences/models/dating-preferen
 import { PreferencesService } from '../../src/preferences/preferences.service';
 import { SecurityEventsExportContributor } from '../../src/security/account-hooks';
 import { SecurityModule } from '../../src/security/security.module';
+import { SettingsModule } from '../../src/settings/settings.module';
 import { UserStatus } from '../../src/users/models/user.model';
 import { UsersService } from '../../src/users/users.service';
 import { ctx, freshIp, indianMobile, lastCode, login, newDevice, openSession, type SignedIn, uniqueEmail } from '../support/auth-helpers';
@@ -62,7 +63,7 @@ describe('M07 Account (MySQL 8.4 + Redis)', () => {
     redis = app.get<Redis>(REDIS_CLIENT);
     server = app.getHttpServer();
     const moduleRef = await Test.createTestingModule({
-      imports: [CoreModule, TestWorkerRegistries, SecurityModule, EmailModule, StorageModule, AccountRegistryModule, AccountWorkerModule],
+      imports: [CoreModule, TestWorkerRegistries, SecurityModule, SettingsModule, EmailModule, StorageModule, AccountRegistryModule, AccountWorkerModule],
     }).compile();
     worker = await moduleRef.init();
     workerEmail = worker.get(EmailProvider) as FakeEmailProvider;
